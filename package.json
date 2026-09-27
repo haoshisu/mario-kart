@@ -1,0 +1,41 @@
+{
+  "name": "mario-kart",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:network": "next dev -H 0.0.0.0",
+    "server:dev": "tsx watch server/index.ts",
+    "server:start": "tsx server/index.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "oxlint --deny-warnings .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.18.16",
+    "@colyseus/sdk": "0.18.2",
+    "@colyseus/ws-transport": "0.18.4",
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.1",
+    "@react-three/rapier": "2.2.0",
+    "next": "16.3.6",
+    "qrcode-generator": "2.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "oxlint": "1.85.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
