@@ -1,6 +1,7 @@
 "use client";
 
 import { QRCode } from "@/components/QRCode";
+import { useState } from "react";
 import type { HostRoomState } from "../network/useHostRoom";
 
 type HostRoomPanelProps = {
@@ -20,6 +21,7 @@ function controllerStatus(state: HostRoomState) {
 }
 
 export function HostRoomPanel({ state, onCreate, onClose }: HostRoomPanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const controllerUrl =
     state.roomId && typeof window !== "undefined"
       ? `${window.location.origin}/controller/${encodeURIComponent(state.roomId)}`
@@ -30,7 +32,13 @@ export function HostRoomPanel({ state, onCreate, onClose }: HostRoomPanelProps) 
       <aside className="host-room-panel host-room-panel--compact" data-testid="host-room-panel">
         <span>PHONE CONTROLLER</span>
         {state.error ? <p className="host-room-panel__error">{state.error}</p> : null}
-        <button onClick={onCreate} type="button">
+        <button
+          onClick={() => {
+            setCollapsed(false);
+            onCreate();
+          }}
+          type="button"
+        >
           建立手機控制房間
         </button>
       </aside>
@@ -46,9 +54,23 @@ export function HostRoomPanel({ state, onCreate, onClose }: HostRoomPanelProps) 
     );
   }
 
+  if (collapsed) {
+    return (
+      <aside className="host-room-panel host-room-panel--compact" data-testid="host-room-panel">
+        <p data-testid="controller-status">{controllerStatus(state)}</p>
+        <button aria-expanded={false} onClick={() => setCollapsed(false)} type="button">
+          顯示 QR Code
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="host-room-panel" data-testid="host-room-panel">
       <div className="host-room-panel__copy">
+        <button aria-expanded={true} onClick={() => setCollapsed(true)} type="button">
+          收起 QR Code
+        </button>
         <span>ROOM CODE</span>
         <strong data-testid="room-code">{state.roomId}</strong>
         <p data-testid="controller-status">{controllerStatus(state)}</p>

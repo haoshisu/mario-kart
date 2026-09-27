@@ -46,6 +46,9 @@ test("host creates a QR room and a separate phone context drives, drops, and rec
   await phonePage.getByRole("button", { name: "加入房間" }).click();
   await expect(phonePage.getByTestId("mobile-controller")).toBeVisible();
   await expect(hostPage.getByTestId("controller-status")).toHaveText("Pocket Driver 已連線");
+  await hostPage.getByRole("button", { name: "收起 QR Code" }).click();
+  await expect(hostPage.getByAltText("手機控制器連結 QR Code")).toHaveCount(0);
+  await expect(hostPage.getByTestId("controller-status")).toHaveText("Pocket Driver 已連線");
 
   const secondPhoneContext = await browser.newContext({
     hasTouch: true,
@@ -89,6 +92,9 @@ test("host creates a QR room and a separate phone context drives, drops, and rec
   await expect
     .poll(async () => Number(await hostPage.getByTestId("kart-runtime").getAttribute("data-speed")))
     .toBeGreaterThan(3);
+  await hostPage.getByRole("button", { name: "顯示 QR Code" }).click();
+  await expect(roomCode).toHaveText(roomId);
+  await expect(hostPage.getByAltText("手機控制器連結 QR Code")).toBeVisible();
   await expect(hostPage.getByTestId("latency-value")).toHaveText(
     /控制回饋 RTT \d+ ms/,
   );
