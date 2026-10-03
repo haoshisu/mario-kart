@@ -1,6 +1,8 @@
-import { TRACK_COLORS, TRACK_CONFIG } from "../track/trackConfig";
+import { useTrack } from "../track/TrackContext";
+import { TRACK_CONFIG } from "../track/trackConfig";
 
 export function Ground() {
+  const { colors: TRACK_COLORS } = useTrack();
   return (
     <mesh position={[0, -TRACK_CONFIG.ground.thickness / 2, 0]} receiveShadow>
       <boxGeometry

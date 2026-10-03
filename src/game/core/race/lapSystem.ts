@@ -1,4 +1,4 @@
-import { CHECKPOINTS, FINISH_MARKER, type RaceMarker } from "./raceTrack";
+import { DEFAULT_RACE_TRACK, type RaceMarker } from "./raceTrack";
 import type { RaceEvent, RaceState } from "./raceTypes";
 
 export type LapUpdate = Readonly<{
@@ -11,7 +11,9 @@ export function applyMarkerCrossing(
   current: RaceState,
   marker: RaceMarker,
   direction: "forward" | "reverse",
+  track = DEFAULT_RACE_TRACK,
 ): LapUpdate {
+  const { CHECKPOINTS, FINISH_MARKER } = track;
   if (current.phase !== "RACING" || direction !== "forward") {
     return { state: current, events: [], finished: false };
   }

@@ -2,10 +2,15 @@
 
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { memo, type RefObject, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { CourseMap } from "./components/CourseMap";
 import { GameScene } from "./components/GameScene";
 import { GameHud } from "./components/GameHud";
 import { HostRoomPanel } from "./components/HostRoomPanel";
+import { MultiplayerHud } from "./components/MultiplayerHud";
+import { MultiplayerScene } from "./components/MultiplayerScene";
+import { RaceAudioControls } from "./components/RaceAudioControls";
+import { KeyboardRaceControls } from "./components/KeyboardRaceControls";
 import { useKeyboardInput } from "./input/useKeyboardInput";
 import { useHostRoom } from "./network/useHostRoom";
 import {
@@ -14,17 +19,31 @@ import {
   type KartTelemetry,
 } from "./runtime/kartRuntime";
 import { createRaceCommands } from "./runtime/raceRuntime";
+import type { SnapshotBuffer } from "./network/interpolation";
+import type { LobbyPlayer } from "./network/protocol";
+import type { InputAppliedMessage } from "./network/protocol";
+import { RenderSettings } from "./rendering/RenderSettings";
+import { SceneBoundary, SceneLoading } from "./rendering/SceneBoundary";
+import { RenderDiagnostics } from "./rendering/RenderDiagnostics";
+import { CanvasRecovery } from "./rendering/CanvasRecovery";
 
-export function Game() {
+import { TrackProvider } from "./track/TrackContext";
+import { TRACK_CATALOG, type TrackId } from "./track/trackCatalog";
+
+export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
+  const [selectedTrackId, setSelectedTrackId] = useState<TrackId>("meadow");
   const [cameraMode, setCameraMode] = useState<"drive" | "inspect">("drive");
   const [ready, setReady] = useState(false);
   const [telemetry, setTelemetry] = useState<KartTelemetry>(INITIAL_KART_TELEMETRY);
   const runtimeRef = useRef(createKartRuntimeState());
   const raceCommandsRef = useRef(createRaceCommands());
-  const keyboardInputRef = useKeyboardInput(cameraMode === "drive");
   const hostRoom = useHostRoom();
-  const controllerActive = hostRoom.state.controller !== "waiting";
-  const inputRef = controllerActive ? hostRoom.inputRef : keyboardInputRef;
+  const trackId = hostRoom.state.roomId ? hostRoom.state.trackId : selectedTrackId;
+  const track = TRACK_CATALOG[trackId];
+  const keyboardInputRef = useKeyboardInput(singlePlayer && hostRoom.state.roomId === null && cameraMode === "drive");
+  const inputReceiptRef = useRef<InputAppliedMessage | null>(null);
+  const multiplayerActive = !singlePlayer || hostRoom.state.roomId !== null;
+  const overview = multiplayerActive ? hostRoom.state.players.length === 0 : cameraMode === "inspect";
   const handleReady = useCallback(() => setReady(true), []);
   const handleTelemetry = useCallback((nextTelemetry: KartTelemetry) => {
     setTelemetry(nextTelemetry);
@@ -60,52 +79,101 @@ export function Game() {
   }, []);
 
   return (
-    <div className="game-canvas">
-      <Canvas
-        camera={{ position: [34, 30, 36], fov: 44, near: 0.1, far: 180 }}
-        dpr={[1, 1.5]}
+    <TrackProvider id={trackId}><div data-track-id={trackId} className="game-canvas" data-follow-player={hostRoom.state.playerId ?? undefined}>
+      <RenderSettings>{(quality) => <SceneBoundary><SceneLoading /><Canvas
+        camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: 240 }}
+        dpr={quality === "low" ? 1 : [1, 1.5]}
         gl={{ antialias: true }}
-        shadows
+        shadows={quality === "standard"}
       >
-        <color args={["#a8c9df"]} attach="background" />
-        <fog args={["#a8c9df", 48, 105]} attach="fog" />
-        <Suspense fallback={null}>
-          <GameScene
+        <color args={[track.sky]} attach="background" />
+        <fog args={[track.sky, overview ? 260 : 70, overview ? 650 : 165]} attach="fog" />
+        <RenderDiagnostics />
+        <CanvasRecovery />
+        <Suspense key={trackId} fallback={null}>
+          {multiplayerActive ? (
+            <MultiplayerScene
+              followPlayerId={hostRoom.state.playerId ?? (hostRoom.state.mode === "solo-phone"
+                ? hostRoom.state.players.find((player) => !player.isBot)?.id : undefined)}
+              players={hostRoom.state.players}
+              snapshotsRef={hostRoom.snapshotsRef}
+            />
+          ) : <GameScene
             cameraMode={cameraMode}
-            inputReceiptRef={hostRoom.inputReceiptRef}
+            inputReceiptRef={inputReceiptRef}
             inputEnabled={cameraMode === "drive"}
-            inputRef={inputRef}
-            onInputApplied={hostRoom.acknowledgeInput}
+            inputRef={keyboardInputRef}
+            onInputApplied={() => undefined}
             raceCommandsRef={raceCommandsRef}
             onReady={handleReady}
             onTelemetry={handleTelemetry}
             runtimeRef={runtimeRef}
-          />
+          />}
         </Suspense>
-        {cameraMode === "inspect" ? (
+        {!multiplayerActive && cameraMode === "inspect" ? (
           <OrbitControls
             enableDamping
             enablePan
-            maxDistance={78}
+            maxDistance={140}
             maxPolarAngle={Math.PI / 2.04}
             minDistance={12}
             minPolarAngle={Math.PI / 8}
             target={[0, 0.5, 0]}
           />
         ) : null}
-      </Canvas>
-      <GameHud
+      </Canvas></SceneBoundary>}</RenderSettings>
+      {multiplayerActive ? (
+        <MultiplayerHud
+          hasConnectedHuman={hostRoom.state.players.some((player) => !player.isBot && player.connection === "connected")}
+          onReturnLobby={hostRoom.returnLobby}
+          onRematch={hostRoom.rematch}
+          snapshot={hostRoom.state.snapshot}
+          roomPhase={hostRoom.state.phase}
+        />
+      ) : <GameHud
         cameraMode={cameraMode}
         onRestart={handleRestart}
         onToggleCamera={toggleCamera}
         ready={ready}
         telemetry={telemetry}
+      />}
+      <CourseMap
+        runtimeRef={multiplayerActive ? undefined : runtimeRef}
+        snapshotsRef={multiplayerActive ? hostRoom.snapshotsRef : undefined}
+        playerId={hostRoom.state.playerId ?? undefined}
       />
       <HostRoomPanel
+        selectedTrackId={selectedTrackId}
+        onSelectTrack={setSelectedTrackId}
         onClose={() => void hostRoom.closeRoom()}
-        onCreate={() => void hostRoom.createRoom()}
+        onCreate={(mode, hostPlays) => void hostRoom.createRoom(mode, hostPlays, selectedTrackId)}
+        onStart={hostRoom.startRace}
         state={hostRoom.state}
       />
-    </div>
+      {hostRoom.state.roomId && hostRoom.state.playerId !== null ?
+        <KeyboardRaceControls state={hostRoom.state} sendInput={hostRoom.sendInput} useItem={hostRoom.useItem} /> : null}
+      {multiplayerActive ? <RaceAudioControls roomId={hostRoom.state.roomId} snapshot={hostRoom.state.snapshot} /> : null}
+    </div></TrackProvider>
   );
 }
+
+
+export const PlayerGame = memo(function PlayerGame({ players, snapshotsRef, playerId, trackId }: {
+  players: readonly LobbyPlayer[];
+  snapshotsRef: RefObject<SnapshotBuffer>;
+  playerId: string;
+  trackId: TrackId;
+}) {
+  const track = TRACK_CATALOG[trackId];
+  return <TrackProvider id={trackId}><div data-track-id={trackId} className="player-game" data-testid="player-game" data-follow-player={playerId}>
+    <RenderSettings initialQuality="low">{(quality) => <SceneBoundary><SceneLoading /><Canvas
+      camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: 240 }}
+      dpr={quality === "low" ? 1 : [1, 1.5]} shadows={quality === "standard"}>
+      <color args={[track.sky]} attach="background" />
+      <fog args={[track.sky, 70, 165]} attach="fog" />
+      <RenderDiagnostics /><CanvasRecovery />
+      <Suspense key={trackId} fallback={null}><MultiplayerScene players={players} snapshotsRef={snapshotsRef} followPlayerId={playerId} /></Suspense>
+    </Canvas></SceneBoundary>}</RenderSettings>
+    <CourseMap snapshotsRef={snapshotsRef} playerId={playerId} />
+  </div></TrackProvider>;
+});

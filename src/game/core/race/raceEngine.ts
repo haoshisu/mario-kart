@@ -2,7 +2,7 @@ import { getMarkerCrossingDirection } from "./checkpointSystem";
 import { applyMarkerCrossing } from "./lapSystem";
 import { calculateRaceProgress, projectOntoRaceRoute } from "./progressSystem";
 import { RACE_CONFIG } from "./raceConfig";
-import { CHECKPOINTS, FINISH_MARKER, RACE_MARKERS } from "./raceTrack";
+import { DEFAULT_RACE_TRACK } from "./raceTrack";
 import {
   createInitialRaceState,
   transitionRaceState,
@@ -30,8 +30,8 @@ export function restartRace() {
   return startRace(createInitialRaceState());
 }
 
-function updateProgress(state: RaceState, position: readonly [number, number]) {
-  const projection = projectOntoRaceRoute(position);
+function updateProgress(state: RaceState, position: readonly [number, number], track = DEFAULT_RACE_TRACK) {
+  const projection = projectOntoRaceRoute(position, track);
   return {
     state: {
       ...state,
@@ -40,6 +40,7 @@ function updateProgress(state: RaceState, position: readonly [number, number]) {
         state.expectedCheckpointIndex,
         state.totalLaps,
         projection,
+        track,
       ),
     },
     projection,
@@ -50,6 +51,7 @@ export function stepRace(
   current: RaceState,
   input: RaceStepInput,
   deltaTime: number,
+  track = DEFAULT_RACE_TRACK,
 ): RaceStepResult {
   const dt = clampDelta(deltaTime);
   const position = [input.position[0], input.position[2]] as const;
@@ -57,7 +59,7 @@ export function stepRace(
   const events: RaceEvent[] = [];
 
   if (state.phase === "IDLE" || state.phase === "FINISHED") {
-    const progress = updateProgress({ ...state, previousPosition: position }, position);
+    const progress = updateProgress({ ...state, previousPosition: position }, position, track);
     return { state: progress.state, events, respawn: null };
   }
 
@@ -71,7 +73,7 @@ export function stepRace(
         events.push({ type: "RACE_STARTED" });
       }
     }
-    const progress = updateProgress(state, position);
+    const progress = updateProgress(state, position, track);
     return { state: progress.state, events, respawn: null };
   }
 
@@ -81,7 +83,7 @@ export function stepRace(
     goDisplayRemaining: Math.max(0, state.goDisplayRemaining - dt),
   };
 
-  const progressUpdate = updateProgress(state, position);
+  const progressUpdate = updateProgress(state, position, track);
   state = progressUpdate.state;
   const respawnEvaluation = evaluateRespawn(
     state.respawn,
@@ -92,7 +94,7 @@ export function stepRace(
   state = { ...state, respawn: respawnEvaluation.state };
 
   if (respawnEvaluation.reason) {
-    const result = applyRespawnProtection(state, respawnEvaluation.reason);
+    const result = applyRespawnProtection(state, respawnEvaluation.reason, track);
     const event = {
       type: "RESPAWN",
       reason: result.respawn.reason,
@@ -108,13 +110,13 @@ export function stepRace(
   const previous = state.previousPosition;
   const canTriggerMarkers = state.respawn.protectionRemaining <= 0;
   if (previous && canTriggerMarkers) {
-    for (const marker of RACE_MARKERS) {
+    for (const marker of track.RACE_MARKERS) {
       const direction = getMarkerCrossingDirection(marker, previous, position);
       if (!direction) {
         continue;
       }
 
-      const lapUpdate = applyMarkerCrossing(state, marker, direction);
+      const lapUpdate = applyMarkerCrossing(state, marker, direction, track);
       state = lapUpdate.state;
       events.push(...lapUpdate.events);
       if (lapUpdate.finished) {
@@ -125,11 +127,11 @@ export function stepRace(
   }
 
   state = { ...state, previousPosition: position };
-  state = updateProgress(state, position).state;
+  state = updateProgress(state, position, track).state;
 
   return { state, events, respawn: null };
 }
 
-export function getNextRaceMarker(state: RaceState) {
-  return CHECKPOINTS[state.expectedCheckpointIndex] ?? FINISH_MARKER;
+export function getNextRaceMarker(state: RaceState, track = DEFAULT_RACE_TRACK) {
+  return track.CHECKPOINTS[state.expectedCheckpointIndex] ?? track.FINISH_MARKER;
 }

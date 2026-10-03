@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { MobileController } from "@/game/network/MobileController";
 
 export const metadata: Metadata = {
-  title: "手機控制器｜Kart Lab",
+  title: "加入賽事｜Kart Lab",
 };
 
 type ControllerPageProps = {

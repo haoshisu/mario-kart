@@ -1,28 +1,39 @@
+import { TrackSupports } from "./TrackSupports";
 import { Instance, Instances } from "@react-three/drei";
 import { useMemo } from "react";
-import {
-  createBufferGeometry,
-  GUARD_RAIL_SEGMENTS,
-  RED_CURB_MESH_DATA,
-  ROAD_MESH_DATA,
-  WHITE_CURB_MESH_DATA,
-} from "../track/trackGeometry";
-import { TRACK_COLORS, TRACK_CONFIG } from "../track/trackConfig";
-import { FINISH_MARKER } from "../core/race/raceTrack";
+import { BufferGeometry, Float32BufferAttribute } from "three";
+import type { TrackMeshData } from "../track/trackGeometry";
+import { TRACK_CONFIG } from "../track/trackConfig";
+import { useTrack } from "../track/TrackContext";
+
+function createBufferGeometry(data: TrackMeshData) {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(data.vertices, 3));
+  geometry.setIndex(Array.from(data.indices));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
 
 function RoadSurface() {
-  const geometry = useMemo(() => createBufferGeometry(ROAD_MESH_DATA), []);
+  const { geometry: { ROAD_MESH_DATA, ROAD_EDGE_MESH_DATA }, colors: TRACK_COLORS } = useTrack();
+  const geometry = useMemo(() => createBufferGeometry(ROAD_MESH_DATA), [ROAD_MESH_DATA]);
 
+  const edges = useMemo(() => createBufferGeometry(ROAD_EDGE_MESH_DATA), [ROAD_EDGE_MESH_DATA]);
   return (
+    <group>
+    <mesh geometry={edges} receiveShadow><meshStandardMaterial color="#fff3cc" roughness={.9} /></mesh>
     <mesh geometry={geometry} receiveShadow>
       <meshStandardMaterial color={TRACK_COLORS.asphalt} metalness={0.04} roughness={0.9} />
     </mesh>
+    </group>
   );
 }
 
 function Curbs() {
-  const redGeometry = useMemo(() => createBufferGeometry(RED_CURB_MESH_DATA), []);
-  const whiteGeometry = useMemo(() => createBufferGeometry(WHITE_CURB_MESH_DATA), []);
+  const { geometry: { RED_CURB_MESH_DATA, WHITE_CURB_MESH_DATA }, colors: TRACK_COLORS } = useTrack();
+  const redGeometry = useMemo(() => createBufferGeometry(RED_CURB_MESH_DATA), [RED_CURB_MESH_DATA]);
+  const whiteGeometry = useMemo(() => createBufferGeometry(WHITE_CURB_MESH_DATA), [WHITE_CURB_MESH_DATA]);
 
   return (
     <>
@@ -37,6 +48,7 @@ function Curbs() {
 }
 
 function GuardRailInstances({ stripe }: { stripe: "red" | "white" }) {
+  const { geometry: { GUARD_RAIL_SEGMENTS }, colors: TRACK_COLORS } = useTrack();
   const segments = GUARD_RAIL_SEGMENTS.filter((segment) => segment.stripe === stripe);
 
   return (
@@ -51,7 +63,7 @@ function GuardRailInstances({ stripe }: { stripe: "red" | "white" }) {
         <Instance
           key={`${stripe}-${index}`}
           position={segment.position}
-          rotation={[0, segment.rotationY, 0]}
+          rotation={[0, segment.rotationY, segment.rotationZ]}
           scale={segment.size}
         />
       ))}
@@ -69,13 +81,16 @@ function GuardRails() {
 }
 
 function StartGrid() {
+  const { race: { FINISH_MARKER } } = useTrack();
   const columns = 8;
   const rows = 2;
   const tileWidth = TRACK_CONFIG.roadWidth / columns;
   const tileLength = 0.48;
 
   return (
-    <group>
+    <Instances frames={1} limit={columns * rows} receiveShadow>
+      <planeGeometry args={[tileLength, tileWidth]} />
+      <meshStandardMaterial roughness={.88} />
       {Array.from({ length: columns * rows }, (_, index) => {
         const column = index % columns;
         const row = Math.floor(index / columns);
@@ -84,7 +99,7 @@ function StartGrid() {
         const lateralOffset = (column - (columns - 1) / 2) * tileWidth;
 
         return (
-          <mesh
+          <Instance
             key={index}
             position={[
               FINISH_MARKER.position[0] +
@@ -95,15 +110,12 @@ function StartGrid() {
                 FINISH_MARKER.forward[1] * forwardOffset +
                 FINISH_MARKER.right[1] * lateralOffset,
             ]}
-            receiveShadow
+            color={isLight ? "#f6f0df" : "#1b1e20"}
             rotation={[-Math.PI / 2, 0, 0]}
-          >
-            <planeGeometry args={[tileLength, tileWidth]} />
-            <meshStandardMaterial color={isLight ? "#f6f0df" : "#1b1e20"} roughness={0.88} />
-          </mesh>
+          />
         );
       })}
-    </group>
+    </Instances>
   );
 }
 
@@ -111,6 +123,7 @@ function StartGrid() {
 export function Track() {
   return (
     <group>
+      <TrackSupports />
       <RoadSurface />
       <Curbs />
       <GuardRails />

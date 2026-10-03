@@ -1,3 +1,6 @@
+import { ITEM_CONFIG } from "../core/items/itemConfig";
+import { roadQuaternion } from "../track/trackSurface";
+import { useTrack } from "../track/TrackContext";
 import {
   RoundCuboidCollider,
   RigidBody,
@@ -12,6 +15,7 @@ import { Kart } from "../components/Kart";
 import { resolveWallCollision } from "../core/collision/collisionSystem";
 import { KART_CONFIG, KART_START } from "../core/kart/kartConfig";
 import {
+  applyLaunchBoost,
   createInitialKartState,
   getKartForward,
   getKartLateralSpeed,
@@ -27,7 +31,6 @@ import {
   startRace,
   stepRace,
 } from "../core/race/raceEngine";
-import { CHECKPOINTS } from "../core/race/raceTrack";
 import type { RaceStepResult } from "../core/race/raceTypes";
 import type { KartRuntimeState, KartTelemetry } from "../runtime/kartRuntime";
 import { createRaceTelemetry, type RaceCommands } from "../runtime/raceRuntime";
@@ -56,6 +59,8 @@ export function KartBody({
   onInputApplied,
   onTelemetry,
 }: KartBodyProps) {
+  const track = useTrack();
+  const padCooldown = useRef(0);
   const groundKart = useKartGrounding();
   const bodyRef = useRef<RapierRigidBody>(null);
   const simulationRef = useRef(createInitialKartState(KART_START.yaw));
@@ -120,6 +125,7 @@ export function KartBody({
 
     if (commands.restartRequested) {
       commands.restartRequested = false;
+      padCooldown.current = 0;
       commands.syntheticCrossingsRequested = 0;
       commands.forcedRespawnRequested = false;
       raceStateRef.current = restartRace().state;
@@ -140,6 +146,14 @@ export function KartBody({
       simulationRef.current = createInitialKartState(simulationRef.current.yaw);
     }
 
+    padCooldown.current = Math.max(0, padCooldown.current - KART_CONFIG.fixedTimeStep);
+    if (canDrive && padCooldown.current === 0) {
+      const position = body.translation();
+      if (track.items.BOOST_PADS.some(pad => Math.hypot(position.x - pad.position[0], position.z - pad.position[1]) < ITEM_CONFIG.padRadius)) {
+        simulationRef.current = { ...simulationRef.current, drift: { ...simulationRef.current.drift, turboTier: 2, turboRemaining: ITEM_CONFIG.padBoostSeconds } };
+        padCooldown.current = ITEM_CONFIG.padCooldown;
+      }
+    }
     const step = stepKartSimulation(
       simulationRef.current,
       effectiveInput,
@@ -157,7 +171,8 @@ export function KartBody({
     const rightX = -forward.z;
     const rightZ = forward.x;
     const lateralSpeed = currentVelocity.x * rightX + currentVelocity.z * rightZ;
-    const retainedLateralSpeed = getKartLateralSpeed(
+    const rebounding = simulationTimeRef.current - lastReactionTimeRef.current < KART_CONFIG.collision.reboundSeconds;
+    const retainedLateralSpeed = rebounding ? lateralSpeed * Math.exp(-3 * KART_CONFIG.fixedTimeStep) : getKartLateralSpeed(
       lateralSpeed,
       step.state.speed,
       effectiveInput.steer,
@@ -166,12 +181,14 @@ export function KartBody({
     );
 
     rotationRef.current.setFromAxisAngle(UP_AXIS, step.state.yaw);
-    body.setRotation(rotationRef.current, true);
+    const surface = groundKart(body);
+    body.setRotation(surface ? roadQuaternion(step.state.yaw, surface) : rotationRef.current, true);
 
     const command = velocityCommandRef.current;
     command.x = forward.x * step.state.speed + rightX * retainedLateralSpeed;
     command.y = currentVelocity.y;
     command.z = forward.z * step.state.speed + rightZ * retainedLateralSpeed;
+    if (surface) command.y = command.x * surface.gradientX + command.z * surface.gradientZ;
     body.setLinvel(command, true);
 
     runtime.yaw = step.state.yaw;
@@ -183,6 +200,7 @@ export function KartBody({
     runtime.turboRemaining = step.state.drift.turboRemaining;
     runtime.turboTier = step.state.drift.turboTier;
     runtime.collisionShake = collisionShakeRef.current;
+    runtime.finished = raceStateRef.current.phase === "FINISHED";
 
     const inputReceipt = inputReceiptRef.current;
     if (
@@ -204,7 +222,7 @@ export function KartBody({
       return;
     }
 
-    groundKart(body, simulationRef.current.yaw);
+    groundKart(body);
     const translation = body.translation();
     runtime.position.x = translation.x;
     runtime.position.y = translation.y;
@@ -229,13 +247,14 @@ export function KartBody({
           position: [translation.x, -2, translation.z],
         },
         KART_CONFIG.fixedTimeStep,
+        track.race,
       );
     } else if (
       commands.syntheticCrossingsRequested > 0 &&
       raceStateRef.current.phase === "RACING"
     ) {
       commands.syntheticCrossingsRequested -= 1;
-      const marker = getNextRaceMarker(raceStateRef.current);
+      const marker = getNextRaceMarker(raceStateRef.current, track.race);
       const segment = createMarkerCrossingSegment(marker, "forward");
       raceResult = stepRace(
         { ...raceStateRef.current, previousPosition: segment.previous },
@@ -244,6 +263,7 @@ export function KartBody({
           position: [segment.current[0], translation.y, segment.current[1]],
         },
         KART_CONFIG.fixedTimeStep,
+        track.race,
       );
       raceResult = {
         ...raceResult,
@@ -257,7 +277,11 @@ export function KartBody({
         raceStateRef.current,
         raceInput,
         KART_CONFIG.fixedTimeStep,
+        track.race,
       );
+    }
+    if (raceStateRef.current.phase === "COUNTDOWN" && raceResult.state.phase === "RACING") {
+      simulationRef.current = applyLaunchBoost(simulationRef.current);
     }
     raceStateRef.current = raceResult.state;
 
@@ -294,7 +318,7 @@ export function KartBody({
       turboActive: simulationRef.current.drift.turboRemaining > 0,
       turboTier: simulationRef.current.drift.turboTier,
       impact: impactRef.current,
-      race: createRaceTelemetry(raceStateRef.current, CHECKPOINTS.length),
+      race: createRaceTelemetry(raceStateRef.current, track.race.CHECKPOINTS.length),
     });
   });
 
@@ -357,7 +381,7 @@ export function KartBody({
       type="dynamic"
     >
       <RoundCuboidCollider
-        args={[0.62, 0.19, 0.90, 0.06]}
+        args={[0.62 * KART_CONFIG.modelScale, 0.19, 0.90 * KART_CONFIG.modelScale, 0.06]}
         friction={0}
         position={[0, -0.18, 0]}
         name="kart-body"

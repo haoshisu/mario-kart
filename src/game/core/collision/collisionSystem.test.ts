@@ -27,7 +27,7 @@ describe("resolveWallCollision", () => {
     expect(result.heavy).toBe(true);
     expect(result.velocity.x).toBeLessThan(0);
     expect(Math.hypot(result.velocity.x, result.velocity.z)).toBeCloseTo(
-      10 * KART_CONFIG.collision.speedRetention,
+      10 * KART_CONFIG.collision.rebound,
       5,
     );
   });

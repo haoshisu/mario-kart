@@ -1,0 +1,21 @@
+.map {
+  position: absolute;
+  left: 20px;
+  bottom: 110px;
+  width: 190px;
+  padding: 10px 12px;
+  border: 1px solid #ffffff30;
+  border-radius: 16px;
+  background: #10303cbb;
+  color: #fff5d9;
+  pointer-events: none;
+  z-index: 1;
+}
+.map > span { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; }
+.map small { font-size: 8px; letter-spacing: .12em; color: #c9f84c; }
+.map svg { display: block; width: 100%; margin-top: 6px; overflow: visible; }
+@media (max-width: 700px), (max-height: 620px) {
+  .map { left: 12px; bottom: 110px; width: 110px; padding: 7px; border-radius: 10px; }
+  .map > span { font-size: 10px; }
+  .map small { display: none; }
+}

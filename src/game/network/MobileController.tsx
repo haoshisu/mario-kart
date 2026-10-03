@@ -1,5 +1,15 @@
 "use client";
 
+import { Countdown, countdownCue } from "../components/Countdown";
+import { DrivingGuide } from "../components/DrivingGuide";
+import dynamic from "next/dynamic";
+import { SnapshotBuffer } from "./interpolation";
+import { useNetworkKeyboard } from "../input/useNetworkKeyboard";
+
+import { createSnapshotDiagnostics } from "./snapshotDiagnostics";
+import { InputSender } from "./inputSender";
+import { ControllerItemPanel } from "./ControllerItemPanel";
+
 import { Client, type Room } from "@colyseus/sdk";
 import {
   useCallback,
@@ -17,15 +27,24 @@ import {
 } from "../input/touchInput";
 import { TiltInputController, type DeviceTiltSample } from "../input/tiltInput";
 import { getGameServerEndpoint } from "./endpoint";
-import { NETWORK_CONFIG } from "./networkConfig";
+import {
+  CLIENT_RECONNECT_TIMEOUT_MS,
+  NETWORK_CONFIG,
+  PLAYER_COLORS,
+  PLAYER_COLOR_VALUES,
+  type PlayerColor,
+} from "./networkConfig";
 import {
   ROOM_MESSAGE,
   sanitizeInputApplied,
   type InputAppliedMessage,
   type ProtocolErrorMessage,
+  type RaceSnapshot,
   type RoomClosedMessage,
   type RoomStatusMessage,
 } from "./protocol";
+
+const PlayerGame = dynamic(() => import("../Game").then((module) => module.PlayerGame), { ssr: false });
 
 type ConnectionPhase =
   | "idle"
@@ -46,12 +65,14 @@ type MobileControllerProps = {
 function connectionErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
-  if (
-    normalized.includes("full") ||
-    normalized.includes("controller") ||
-    normalized.includes("locked")
-  ) {
-    return "房間已有控制器，無法加入。";
+  if (normalized.includes("full")) {
+    return "房間已滿，最多只能加入四位玩家。";
+  }
+  if (normalized.includes("already started") || normalized.includes("locked")) {
+    return "比賽已開始，請等待下一場。";
+  }
+  if (normalized.includes("color") || normalized.includes("colour")) {
+    return "這個車色已被使用，請選擇其他顏色。";
   }
   if (normalized.includes("not found") || normalized.includes("seat reservation")) {
     return "找不到房間，房間可能不存在或已關閉。";
@@ -68,9 +89,20 @@ function roomStorageKey(roomId: string) {
 }
 
 export function MobileController({ roomId }: MobileControllerProps) {
+  const snapshotsRef = useRef(new SnapshotBuffer());
+  const [keyboard, setKeyboard] = useState(false);
   const [nickname, setNickname] = useState("");
+  const [color, setColor] = useState<PlayerColor | undefined>(undefined);
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
-  const [hostStatus, setHostStatus] = useState<RoomStatusMessage["host"]>("waiting");
+  const [roomStatus, setRoomStatus] = useState<RoomStatusMessage>({
+    mode: "multiplayer",
+    trackId: "meadow",
+    host: "disconnected",
+    phase: "lobby",
+    players: [],
+    canStart: false,
+  });
+  const [snapshot, setSnapshot] = useState<RaceSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<KartInput>(EMPTY_KART_INPUT);
   const [tiltEnabled, setTiltEnabled] = useState(false);
@@ -78,8 +110,10 @@ export function MobileController({ roomId }: MobileControllerProps) {
   const [sensitivity, setSensitivity] = useState(28);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [reconnectToken, setReconnectToken] = useState<string | null>(null);
+  const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
   const roomRef = useRef<Room | null>(null);
   const nicknameRef = useRef(nickname);
+  const colorRef = useRef(color);
   const sequenceRef = useRef(0);
   const touchRef = useRef(new TouchInputController());
   const tiltRef = useRef(new TiltInputController(28));
@@ -91,18 +125,9 @@ export function MobileController({ roomId }: MobileControllerProps) {
   const reconnectingRef = useRef(false);
   const manuallyLeavingRef = useRef(false);
   const lastLatencyReportAtRef = useRef(0);
+  const lastSnapshotUiAtRef = useRef(0);
 
-  const syncInput = useCallback(() => {
-    const next = composeControllerInput(
-      touchRef.current.read(),
-      tiltSteerRef.current,
-      tiltEnabled,
-    );
-    inputRef.current = next;
-    setPreview(next);
-  }, [tiltEnabled]);
-
-  const sendInput = useCallback((input: KartInput) => {
+  const transmitInput = useCallback((input: KartInput) => {
     const room = roomRef.current;
     if (!room) {
       return;
@@ -119,6 +144,28 @@ export function MobileController({ roomId }: MobileControllerProps) {
     }
   }, []);
 
+  const senderRef = useRef<InputSender | null>(null);
+  const sendInput = useCallback((input: KartInput) => {
+    senderRef.current ??= new InputSender(transmitInput);
+    senderRef.current.send(input);
+  }, [transmitInput]);
+
+  useEffect(() => () => {
+    senderRef.current?.dispose();
+    senderRef.current = null;
+  }, []);
+
+  const syncInput = useCallback(() => {
+    const next = composeControllerInput(
+      touchRef.current.read(),
+      tiltSteerRef.current,
+      tiltEnabled,
+    );
+    inputRef.current = next;
+    setPreview(next);
+    sendInput(next);
+  }, [sendInput, tiltEnabled]);
+
   const releaseAllInput = useCallback(() => {
     touchRef.current.reset();
     tiltSteerRef.current = 0;
@@ -129,7 +176,10 @@ export function MobileController({ roomId }: MobileControllerProps) {
   }, [sendInput]);
 
   const bindRoom = useCallback((room: Room) => {
+    const publishDiagnostics = createSnapshotDiagnostics();
+    snapshotsRef.current.clear();
     roomRef.current = room;
+    setCurrentPlayerId(room.sessionId);
     roomWasClosedRef.current = false;
     reconnectingRef.current = false;
     manuallyLeavingRef.current = false;
@@ -139,11 +189,32 @@ export function MobileController({ roomId }: MobileControllerProps) {
     room.reconnection.enabled = false;
     sessionStorage.setItem(
       roomStorageKey(roomId),
-      JSON.stringify({ token: room.reconnectionToken, nickname: nicknameRef.current }),
+      JSON.stringify({
+        token: room.reconnectionToken,
+        nickname: nicknameRef.current,
+        color: colorRef.current,
+      }),
     );
 
     room.onMessage<RoomStatusMessage>(ROOM_MESSAGE.roomStatus, (status) => {
-      setHostStatus(status.host);
+      setRoomStatus(status);
+    });
+    room.onMessage<RaceSnapshot>(ROOM_MESSAGE.snapshot, (nextSnapshot) => {
+      if (!snapshotsRef.current.add(nextSnapshot)) return;
+      publishDiagnostics?.(nextSnapshot);
+      setRoomStatus((current) => (
+        current.phase === nextSnapshot.phase
+          ? current
+          : { ...current, phase: nextSnapshot.phase }
+      ));
+      const now = Date.now();
+      if (
+        now - lastSnapshotUiAtRef.current >= 150 ||
+        nextSnapshot.phase === "finished"
+      ) {
+        lastSnapshotUiAtRef.current = now;
+        setSnapshot(nextSnapshot);
+      }
     });
     room.onMessage<InputAppliedMessage>(ROOM_MESSAGE.inputApplied, (message) => {
       const applied = sanitizeInputApplied(message);
@@ -164,6 +235,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
     room.onMessage<RoomClosedMessage>(ROOM_MESSAGE.roomClosed, () => {
       roomWasClosedRef.current = true;
       roomRef.current = null;
+      setCurrentPlayerId(null);
       sessionStorage.removeItem(roomStorageKey(roomId));
       releaseAllInput();
       setPhase("closed");
@@ -188,7 +260,11 @@ export function MobileController({ roomId }: MobileControllerProps) {
       setError(null);
       sessionStorage.setItem(
         roomStorageKey(roomId),
-        JSON.stringify({ token: room.reconnectionToken, nickname: nicknameRef.current }),
+        JSON.stringify({
+          token: room.reconnectionToken,
+          nickname: nicknameRef.current,
+          color: colorRef.current,
+        }),
       );
     });
     room.onLeave(() => {
@@ -219,7 +295,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
     }
 
     let cancelled = false;
-    const deadline = Date.now() + (NETWORK_CONFIG.reconnectSeconds * 1_000 - 500);
+    const deadline = Date.now() + CLIENT_RECONNECT_TIMEOUT_MS;
     const reconnect = async () => {
       while (!cancelled && Date.now() < deadline) {
         try {
@@ -239,6 +315,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
       if (!cancelled) {
         reconnectingRef.current = false;
         roomRef.current = null;
+        setCurrentPlayerId(null);
         setReconnectToken(null);
         setPhase("error");
         setError("重連逾時，請重新加入房間。");
@@ -262,19 +339,22 @@ export function MobileController({ roomId }: MobileControllerProps) {
       const room = await client.joinById(roomId, {
         role: "controller",
         nickname,
+        color,
+        protocolVersion: NETWORK_CONFIG.protocolVersion,
       });
       bindRoom(room);
     } catch (joinError) {
       setPhase("error");
       setError(connectionErrorMessage(joinError));
     }
-  }, [bindRoom, nickname, roomId]);
+  }, [bindRoom, color, nickname, roomId]);
 
   const leaveRoom = useCallback(() => {
     const room = roomRef.current;
     releaseAllInput();
     sessionStorage.removeItem(roomStorageKey(roomId));
     roomRef.current = null;
+    setCurrentPlayerId(null);
     manuallyLeavingRef.current = true;
     setPhase("idle");
     setError(null);
@@ -295,16 +375,23 @@ export function MobileController({ roomId }: MobileControllerProps) {
     }
 
     try {
-      const parsed = JSON.parse(stored) as { token?: unknown; nickname?: unknown };
+      const parsed = JSON.parse(stored) as {
+        token?: unknown;
+        nickname?: unknown;
+        color?: unknown;
+      };
       if (typeof parsed.token !== "string") {
         sessionStorage.removeItem(roomStorageKey(roomId));
         return;
       }
       const reconnectionToken = parsed.token;
       const storedNickname = typeof parsed.nickname === "string" ? parsed.nickname : "";
+      const storedColor = PLAYER_COLORS.find((candidate) => candidate === parsed.color) ?? PLAYER_COLORS[0];
       void Promise.resolve().then(() => {
         nicknameRef.current = storedNickname;
+        colorRef.current = storedColor;
         setNickname(storedNickname);
+        setColor(storedColor);
         setPhase("connecting");
         const client = new Client(getGameServerEndpoint());
         void client.reconnect(reconnectionToken).then(bindRoom).catch((reconnectError: unknown) => {
@@ -319,7 +406,10 @@ export function MobileController({ roomId }: MobileControllerProps) {
   }, [bindRoom, roomId]);
 
   useEffect(() => {
-    if (phase !== "connected") {
+    if (
+      phase !== "connected" ||
+      (roomStatus.phase !== "countdown" && roomStatus.phase !== "racing")
+    ) {
       return;
     }
     sendInput(inputRef.current);
@@ -330,7 +420,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
     return () => {
       window.clearInterval(inputTimer);
     };
-  }, [phase, sendInput]);
+  }, [phase, roomStatus.phase, sendInput]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -422,11 +512,23 @@ export function MobileController({ roomId }: MobileControllerProps) {
     updateTouch(event.pointerId, control, false);
   };
 
+  const keyboardSend = useCallback((input: KartInput) => {
+    inputRef.current = input;
+    setPreview(input);
+    sendInput(input);
+  }, [sendInput]);
+  const ownPlayer = snapshot?.players.find((player) => player.id === currentPlayerId);
+  useNetworkKeyboard(keyboard && phase === "connected" && roomStatus.phase === "racing", keyboardSend, () => {
+    if (ownPlayer?.item.held && ownPlayer.item.cooldown === 0 && ownPlayer.item.lockRemaining === 0) {
+      roomRef.current?.send(ROOM_MESSAGE.useItem, { revision: ownPlayer.item.revision });
+    }
+  });
+
   if (phase !== "connected" && phase !== "reconnecting") {
     return (
       <main className="controller-shell">
         <section className="controller-join-card">
-          <p className="eyebrow">PHONE CONTROLLER · {roomId}</p>
+          <p className="eyebrow">JOIN RACE · {roomId}</p>
           <h1>連接駕駛座</h1>
           <label htmlFor="controller-nickname">暱稱</label>
           <input
@@ -441,6 +543,23 @@ export function MobileController({ roomId }: MobileControllerProps) {
             placeholder="Driver"
             value={nickname}
           />
+          <fieldset className="controller-colors">
+            <legend>車身顏色</legend>
+            <button type="button" aria-pressed={color === undefined} onClick={() => { colorRef.current = undefined; setColor(undefined); }}>自動</button>
+            {PLAYER_COLORS.map((candidate) => (
+              <button
+                aria-label={`選擇 ${candidate} 顏色`}
+                aria-pressed={color === candidate}
+                key={candidate}
+                onClick={() => {
+                  colorRef.current = candidate;
+                  setColor(candidate);
+                }}
+                style={{ backgroundColor: PLAYER_COLOR_VALUES[candidate] }}
+                type="button"
+              />
+            ))}
+          </fieldset>
           {error ? <p className="controller-error" role="alert">{error}</p> : null}
           <button disabled={phase === "connecting"} onClick={() => void joinRoom()} type="button">
             {phase === "connecting" ? "連線中…" : "加入房間"}
@@ -451,20 +570,47 @@ export function MobileController({ roomId }: MobileControllerProps) {
   }
 
   return (
-    <main className="controller-shell controller-shell--active" data-testid="mobile-controller">
+    <main className="controller-shell controller-shell--active player-screen" data-testid="mobile-controller" data-throttle={preview.throttle} data-steer={preview.steer}
+      data-phase={roomStatus.phase} data-x={ownPlayer?.position[0]} data-z={ownPlayer?.position[2]}
+      data-yaw={ownPlayer?.yaw} data-speed={ownPlayer?.speed} data-status={ownPlayer?.status}
+      data-drift-tier={ownPlayer?.driftTier} data-turbo-tier={ownPlayer?.turboTier}>
+      {currentPlayerId ? <PlayerGame trackId={roomStatus.trackId} players={roomStatus.players} snapshotsRef={snapshotsRef} playerId={currentPlayerId} /> : null}
       <header className="controller-status-bar">
         <div>
           <span>{phase === "reconnecting" ? "RECONNECTING" : "CONNECTED"}</span>
           <strong>{roomId}</strong>
         </div>
-        <p>{hostStatus === "reconnecting" ? "Host 重連中" : `${nickname || "Driver"} · ${latencyMs ?? "—"} ms`}</p>
+        <p>{roomStatus.host === "reconnecting" ? "Host 重連中" : `${nickname || "Driver"} · ${latencyMs ?? "—"} ms`}</p>
         <button onClick={leaveRoom} type="button">離開</button>
       </header>
 
       {error ? <p className="controller-toast" role="status">{error}</p> : null}
 
+      {roomStatus.phase === "lobby" ? (
+        <ControllerLobby
+          currentPlayerId={currentPlayerId}
+          onReady={(ready) => roomRef.current?.send(ROOM_MESSAGE.playerReady, { ready })}
+          status={roomStatus}
+        />
+      ) : null}
+
+      {roomStatus.phase === "finished" ? (
+        <ControllerResult currentPlayerId={currentPlayerId} snapshot={snapshot} />
+      ) : null}
+
+      <div data-testid="controller-countdown"><Countdown cue={countdownCue(
+        roomStatus.phase === "countdown" ? snapshot?.countdownRemaining ?? 3 : 0,
+        roomStatus.phase === "racing", snapshot?.elapsedTime ?? 2,
+      )} /></div>
+
+      {roomStatus.phase === "countdown" || roomStatus.phase === "racing" ? <>
+      <ControllerItemPanel snapshot={snapshot} playerId={currentPlayerId} connected={phase === "connected"}
+        onUse={(revision) => roomRef.current?.send(ROOM_MESSAGE.useItem, { revision })} />
+      <p className="player-race-status">{ownPlayer ? `第 ${ownPlayer.rank} 名 · 第 ${Math.min(ownPlayer.completedLaps + 1, ownPlayer.totalLaps)}/${ownPlayer.totalLaps} 圈` : "同步中"} · 建議橫向遊玩</p>
       <section className="controller-options" aria-label="控制器設定">
-        <button onClick={() => void requestTilt()} type="button">
+        <button type="button" onClick={() => { releaseAllInput(); setTiltEnabled(false); setKeyboard(!keyboard); }}>{keyboard ? "切換觸控操作" : "切換鍵盤操作"}</button>
+        {keyboard ? <DrivingGuide /> : null}
+        <button disabled={keyboard} onClick={() => void requestTilt()} type="button">
           {tiltEnabled ? "傾斜已啟用" : tiltPermission === "denied" ? "重試傾斜" : "啟用傾斜"}
         </button>
         {tiltEnabled ? (
@@ -494,7 +640,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         ) : null}
       </section>
 
-      <section className="controller-pad" aria-label="卡丁車觸控控制">
+      {!keyboard ? <section className="controller-pad" aria-label="卡丁車觸控控制">
         <div className="controller-pad__steering">
           <ControlButton control="left" label="左轉" onDown={pointerDown("left")} onUp={pointerUp("left")} pressed={preview.steer < 0}>←</ControlButton>
           <ControlButton control="right" label="右轉" onDown={pointerDown("right")} onUp={pointerUp("right")} pressed={preview.steer > 0}>→</ControlButton>
@@ -504,8 +650,65 @@ export function MobileController({ roomId }: MobileControllerProps) {
           <ControlButton control="brake" label="煞車或倒車" onDown={pointerDown("brake")} onUp={pointerUp("brake")} pressed={preview.brake > 0}>BRAKE</ControlButton>
           <ControlButton control="throttle" label="加速" onDown={pointerDown("throttle")} onUp={pointerUp("throttle")} pressed={preview.throttle > 0}>GAS</ControlButton>
         </div>
-      </section>
+      </section> : null}
+      </> : null}
     </main>
+  );
+}
+
+function ControllerLobby({
+  currentPlayerId,
+  onReady,
+  status,
+}: {
+  currentPlayerId: string | null;
+  onReady: (ready: boolean) => void;
+  status: RoomStatusMessage;
+}) {
+  const current = status.players.find((player) => player.id === currentPlayerId);
+  return (
+    <section className="controller-lobby" data-testid="controller-lobby">
+      <p className="eyebrow">RACE LOBBY · {status.players.length}/{NETWORK_CONFIG.maximumPlayers}</p>
+      <h1>等待 Host 開賽</h1>
+      <ul>
+        {status.players.map((player) => (
+          <li key={player.id}>
+            <i style={{ backgroundColor: PLAYER_COLOR_VALUES[player.color] }} />
+            <span>{player.nickname}</span>
+            <strong>{player.isBot ? "CPU" : player.connection === "reconnecting" ? "重連中" : player.ready ? "READY" : "等待"}</strong>
+          </li>
+        ))}
+      </ul>
+      <button
+        className={current?.ready ? "is-ready" : undefined}
+        disabled={!current || current.connection !== "connected"}
+        onClick={() => onReady(!current?.ready)}
+        type="button"
+      >
+        {current?.ready ? "取消準備" : "準備完成"}
+      </button>
+    </section>
+  );
+}
+
+function ControllerResult({
+  currentPlayerId,
+  snapshot,
+}: {
+  currentPlayerId: string | null;
+  snapshot: RaceSnapshot | null;
+}) {
+  const player = snapshot?.players.find((candidate) => candidate.id === currentPlayerId);
+  return (
+    <section className="controller-result" data-testid="controller-result">
+      <p className="eyebrow">RACE COMPLETE</p>
+      <h1>{player?.status === "dnf" ? "DNF" : `第 ${player?.rank ?? "—"} 名`}</h1>
+      <p>{player?.finishTime === null || player?.finishTime === undefined ? "未完成" : `${player.finishTime.toFixed(2)} 秒`}</p>
+      <ol className="controller-result-ranking">
+        {snapshot?.players.map((entry) => <li key={entry.id}>{entry.rank}. {entry.nickname} · {entry.status === "dnf" ? "DNF" : `${entry.finishTime?.toFixed(2)} 秒`}</li>)}
+      </ol>
+      <small>等待 Host 再玩一次或返回 Lobby</small>
+    </section>
   );
 }
 

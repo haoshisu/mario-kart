@@ -1,3 +1,5 @@
+import { useTrack } from "../track/TrackContext";
+import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useRef, type RefObject } from "react";
 import { Vector3 } from "three";
@@ -11,6 +13,8 @@ type FollowCameraProps = {
 };
 
 export function FollowCamera({ runtimeRef }: FollowCameraProps) {
+  const track = useTrack();
+  const surface = useRef(createSurfaceResult());
   const camera = useThree((state) => state.camera);
   const desiredPosition = useRef(new Vector3());
   const desiredTarget = useRef(new Vector3());
@@ -45,6 +49,8 @@ export function FollowCamera({ runtimeRef }: FollowCameraProps) {
 
     // Use the kart's shared presentation position, without a second horizontal
     // spring that would change the following distance as speed fluctuates.
+    sampleTrackSurface(desiredTarget.current.x, desiredTarget.current.z, track.samples, surface.current);
+    desiredTarget.current.y = surface.current.height + 1.1;
     camera.position.copy(desiredPosition.current);
     camera.lookAt(desiredTarget.current);
   });

@@ -9,11 +9,11 @@ export default async function RoomPage({ params }: RoomPageProps) {
 
   return (
     <main className="placeholder-page">
-      <p className="eyebrow">FUTURE MODULE</p>
+      <p className="eyebrow">PHASE 5 · ITEM RACE</p>
       <h1>房間 {roomId}</h1>
-      <p>多人遊戲大廳的路由已預留，本階段尚未實作連線功能。</p>
-      <Link className="text-link" href="/">
-        返回首頁
+      <p>在電腦或手機加入房間，觀看自己的跟車畫面並直接操作。</p>
+      <Link className="text-link" href={`/controller/${encodeURIComponent(roomId)}`}>
+        加入這個房間
       </Link>
     </main>
   );

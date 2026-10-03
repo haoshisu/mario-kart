@@ -1,5 +1,5 @@
 import { RACE_CONFIG } from "./raceConfig";
-import { getRespawnPose } from "./raceTrack";
+import { getRespawnPose, DEFAULT_RACE_TRACK } from "./raceTrack";
 import type { RaceState, RaceStepInput, RespawnReason } from "./raceTypes";
 
 export type RespawnEvaluation = Readonly<{
@@ -49,8 +49,8 @@ export function evaluateRespawn(
   };
 }
 
-export function applyRespawnProtection(state: RaceState, reason: RespawnReason) {
-  const pose = getRespawnPose(state.lastValidMarkerId);
+export function applyRespawnProtection(state: RaceState, reason: RespawnReason, track = DEFAULT_RACE_TRACK) {
+  const pose = getRespawnPose(state.lastValidMarkerId, track);
   return {
     state: {
       ...state,

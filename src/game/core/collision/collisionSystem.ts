@@ -39,18 +39,21 @@ export function resolveWallCollision(input: WallCollisionInput): WallCollisionRe
   const normalX = input.normal.x / normalLength;
   const normalZ = input.normal.z / normalLength;
   const dot = input.velocity.x * normalX + input.velocity.z * normalZ;
-  const reflectedX = input.velocity.x - (1 + KART_CONFIG.collision.rebound) * dot * normalX;
-  const reflectedZ = input.velocity.z - (1 + KART_CONFIG.collision.rebound) * dot * normalZ;
-  const retainedSpeed = speed * KART_CONFIG.collision.speedRetention;
-  const reflectedLength = Math.max(0.001, Math.hypot(reflectedX, reflectedZ));
-  const heavy = speed >= KART_CONFIG.collision.heavyImpactSpeed;
+  if (Math.abs(dot) < KART_CONFIG.collision.minimumImpactSpeed) return {
+    reacted: false, heavy: false, velocity: input.velocity, shake: 0, reactionTime: input.lastReactionTime,
+  };
+  // Preserve the tangent while reversing only the approach velocity. Normal
+  // orientation does not affect the result, matching either Rapier manifold order.
+  const reflectedX = (input.velocity.x - dot * normalX) * KART_CONFIG.collision.speedRetention - dot * normalX * KART_CONFIG.collision.rebound;
+  const reflectedZ = (input.velocity.z - dot * normalZ) * KART_CONFIG.collision.speedRetention - dot * normalZ * KART_CONFIG.collision.rebound;
+  const heavy = Math.abs(dot) >= KART_CONFIG.collision.heavyImpactSpeed;
 
   return {
     reacted: true,
     heavy,
     velocity: {
-      x: (reflectedX / reflectedLength) * retainedSpeed,
-      z: (reflectedZ / reflectedLength) * retainedSpeed,
+      x: reflectedX,
+      z: reflectedZ,
     },
     shake: Math.min(1, speed / KART_CONFIG.collision.heavyImpactSpeed) * (heavy ? 1 : 0.55),
     reactionTime: input.time,

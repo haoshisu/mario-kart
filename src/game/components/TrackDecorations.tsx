@@ -1,4 +1,11 @@
+import { TracksideResidents } from "./TracksideResidents";
+import { ThemedScenery } from "./ThemedScenery";
+import { useTrack } from "../track/TrackContext";
+import { TRACK_SAMPLES, pointAtTrackOffset, distanceToTrack } from "../track/trackPath";
 import { Instance, Instances } from "@react-three/drei";
+import { ValleyLandmarks } from "./ValleyLandmarks";
+import { FestivalScenery } from "./FestivalScenery";
+import { MeadowScenery } from "./MeadowScenery";
 
 type TreePlacement = Readonly<{
   position: readonly [number, number];
@@ -6,27 +13,14 @@ type TreePlacement = Readonly<{
   rotation: number;
 }>;
 
-const TREES: readonly TreePlacement[] = [
-  { position: [-8, -1], scale: 1.15, rotation: 0.2 },
-  { position: [-4, 2.4], scale: 0.9, rotation: 1.7 },
-  { position: [1.5, -2.6], scale: 1.25, rotation: 0.8 },
-  { position: [6.5, 1.2], scale: 1, rotation: 2.4 },
-  { position: [29.5, -10], scale: 1.15, rotation: 0.1 },
-  { position: [30.5, -4.5], scale: 0.85, rotation: 1.2 },
-  { position: [30, 7], scale: 1.3, rotation: 2.5 },
-  { position: [27.5, 14], scale: 0.95, rotation: 0.6 },
-  { position: [21, 20], scale: 1.1, rotation: 1.8 },
-  { position: [10, 21.5], scale: 0.9, rotation: 2.9 },
-  { position: [-4, 21], scale: 1.25, rotation: 0.9 },
-  { position: [-16, 20.5], scale: 1, rotation: 2.1 },
-  { position: [-27, 16.5], scale: 1.2, rotation: 0.4 },
-  { position: [-30, 8], scale: 0.85, rotation: 1.5 },
-  { position: [-30.5, -4], scale: 1.15, rotation: 2.8 },
-  { position: [-27.5, -14], scale: 1, rotation: 0.7 },
-  { position: [-17, -20.5], scale: 1.25, rotation: 1.9 },
-  { position: [9, -21], scale: 1.05, rotation: 2.6 },
-  { position: [20, -20], scale: 0.9, rotation: 0.3 },
-];
+const TREES: readonly TreePlacement[] = TRACK_SAMPLES.flatMap((sample, index) => {
+  if (index % 9 !== 0) return [];
+  return [-1, 1].flatMap((side) => {
+    const position = pointAtTrackOffset(sample, side * (8 + index % 3));
+    if (distanceToTrack(...position) < 7 || Math.hypot(position[0] + 7, position[1] + 10.5) < 9) return [];
+    return [{ position, scale: .9 + (index % 4) * .16, rotation: index * .7 }];
+  });
+});
 
 const ROCKS = [
   [-10.5, 3.9, 0.75, 0.2],
@@ -34,9 +28,9 @@ const ROCKS = [
   [31, 13, 0.85, 0.6],
   [-30, -15.5, 0.7, 2.2],
   [18, 22, 0.6, 1.7],
-] as const;
+].filter(([x, z]) => distanceToTrack(x, z) > 7);
 
-function LowPolyTrees() {
+function OrchardTrees() {
   return (
     <group>
       <Instances castShadow frames={1} limit={TREES.length} receiveShadow>
@@ -53,8 +47,8 @@ function LowPolyTrees() {
       </Instances>
 
       <Instances castShadow frames={1} limit={TREES.length}>
-        <coneGeometry args={[1, 1.75, 7]} />
-        <meshStandardMaterial color="#2f6c3b" flatShading roughness={0.9} />
+        <sphereGeometry args={[1, 12, 8]} />
+        <meshStandardMaterial color="#48ad39" roughness={0.9} />
         {TREES.map((tree, index) => (
           <Instance
             key={`lower-crown-${index}`}
@@ -66,8 +60,8 @@ function LowPolyTrees() {
       </Instances>
 
       <Instances castShadow frames={1} limit={TREES.length}>
-        <coneGeometry args={[0.72, 1.45, 7]} />
-        <meshStandardMaterial color="#41834b" flatShading roughness={0.88} />
+        <sphereGeometry args={[0.78, 12, 8]} />
+        <meshStandardMaterial color="#80ce42" roughness={0.88} />
         {TREES.map((tree, index) => (
           <Instance
             key={`upper-crown-${index}`}
@@ -121,11 +115,17 @@ function TracksideTent() {
 
 /** Non-colliding scenery is kept independent from the driveable track. */
 export function TrackDecorations() {
+  const track = useTrack();
+  if (track.id !== "meadow") return <><ThemedScenery /><TracksideResidents /></>;
   return (
     <group>
-      <LowPolyTrees />
+      <TracksideResidents />
+      <OrchardTrees />
       <TracksideRocks />
       <TracksideTent />
+      <MeadowScenery />
+      <FestivalScenery />
+      <ValleyLandmarks />
     </group>
   );
 }

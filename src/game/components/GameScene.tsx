@@ -1,3 +1,4 @@
+import { BoostPads } from "./BoostPads";
 import { memo, type RefObject } from "react";
 import type { KartInput } from "../core/kart/kartTypes";
 import type { InputAppliedMessage } from "../network/protocol";
@@ -50,6 +51,7 @@ export const GameScene = memo(function GameScene({
       <Ground />
       <Track />
       <RaceMarkers />
+      <BoostPads />
       <TrackDecorations />
       {cameraMode === "drive" ? <FollowCamera runtimeRef={runtimeRef} /> : null}
     </>

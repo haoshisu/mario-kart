@@ -1,6 +1,8 @@
-import { TRACK_CONFIG } from "../../track/trackConfig";
+import { TRACK_LAYOUT } from "../../track/trackLayout";
 
 export const KART_CONFIG = {
+  modelScale: 0.72,
+  launch: { speed: 10, duration: 1.1 },
   fixedTimeStep: 1 / 60,
   // Predict contacts without hard CCD clipping travel at coplanar road seams.
   // At 60 Hz this covers a full step even at the fastest turbo tier.
@@ -57,8 +59,9 @@ export const KART_CONFIG = {
   collision: {
     minimumImpactSpeed: 2.2,
     heavyImpactSpeed: 8,
-    speedRetention: 0.52,
-    rebound: 0.26,
+    speedRetention: 0.78,
+    rebound: 0.48,
+    reboundSeconds: 0.3,
     cooldown: 0.2,
   },
   camera: {
@@ -80,11 +83,11 @@ export function getDriftTierConfig(tier: DriftTier) {
 
 export const KART_START = {
   position: [
-    -TRACK_CONFIG.straightLength / 4 - 3,
+    TRACK_LAYOUT.spawn[0],
     0.52,
-    -TRACK_CONFIG.turnRadius,
+    TRACK_LAYOUT.spawn[1],
   ] as const,
-  yaw: -Math.PI / 2,
+  yaw: TRACK_LAYOUT.spawnYaw,
 } as const;
 
 export const KART_WHEEL_POSITIONS: [number, number, number][] = [

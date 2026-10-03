@@ -103,9 +103,9 @@ export function GameHud({
       <div className="kart-hud__controls">
         {cameraMode === "drive" ? (
           <>
-            <span><kbd>W</kbd> / <kbd>↑</kbd> 加速</span>
-            <span><kbd>S</kbd> / <kbd>↓</kbd> 煞車／倒車</span>
-            <span><kbd>A D</kbd> / <kbd>← →</kbd> 轉向</span>
+            <span><kbd>↑</kbd> / <kbd>W</kbd> 加速</span>
+            <span><kbd>↓</kbd> / <kbd>S</kbd> 煞車／倒車</span>
+            <span><kbd>← →</kbd> / <kbd>A D</kbd> 轉向</span>
             <span><kbd>SPACE</kbd> 漂移</span>
           </>
         ) : (

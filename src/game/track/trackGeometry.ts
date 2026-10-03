@@ -1,4 +1,4 @@
-import { BufferGeometry, Float32BufferAttribute } from "three";
+import { surfaceOffsetHeight } from "./trackSurface";
 import { TRACK_CONFIG } from "./trackConfig";
 import {
   pointAtTrackOffset,
@@ -17,6 +17,7 @@ export type TrackMeshData = Readonly<{
 export type GuardRailSegment = Readonly<{
   position: readonly [x: number, y: number, z: number];
   rotationY: number;
+  rotationZ: number;
   size: readonly [length: number, height: number, thickness: number];
   stripe: "red" | "white";
 }>;
@@ -45,10 +46,10 @@ function createContinuousBand(
     const left = pointAtTrackOffset(sample, leftOffset);
     const right = pointAtTrackOffset(sample, rightOffset);
     vertices.push(
-      left[0], top, left[1],
-      right[0], top, right[1],
-      left[0], bottom, left[1],
-      right[0], bottom, right[1],
+      left[0], top + surfaceOffsetHeight(sample, leftOffset), left[1],
+      right[0], top + surfaceOffsetHeight(sample, rightOffset), right[1],
+      left[0], bottom + surfaceOffsetHeight(sample, leftOffset), left[1],
+      right[0], bottom + surfaceOffsetHeight(sample, rightOffset), right[1],
     );
   }
 
@@ -86,14 +87,14 @@ function addBandPrism(
   const base = vertices.length / 3;
 
   vertices.push(
-    startFirst[0], top, startFirst[1],
-    startSecond[0], top, startSecond[1],
-    endFirst[0], top, endFirst[1],
-    endSecond[0], top, endSecond[1],
-    startFirst[0], bottom, startFirst[1],
-    startSecond[0], bottom, startSecond[1],
-    endFirst[0], bottom, endFirst[1],
-    endSecond[0], bottom, endSecond[1],
+    startFirst[0], top + surfaceOffsetHeight(start, firstOffset), startFirst[1],
+    startSecond[0], top + surfaceOffsetHeight(start, secondOffset), startSecond[1],
+    endFirst[0], top + surfaceOffsetHeight(end, firstOffset), endFirst[1],
+    endSecond[0], top + surfaceOffsetHeight(end, secondOffset), endSecond[1],
+    startFirst[0], bottom + surfaceOffsetHeight(start, firstOffset), startFirst[1],
+    startSecond[0], bottom + surfaceOffsetHeight(start, secondOffset), startSecond[1],
+    endFirst[0], bottom + surfaceOffsetHeight(end, firstOffset), endFirst[1],
+    endSecond[0], bottom + surfaceOffsetHeight(end, secondOffset), endSecond[1],
   );
 
   addQuad(indices, base, base + 1, base + 2, base + 3);
@@ -188,12 +189,13 @@ function createGuardRailSegments(samples: readonly TrackSample[]): readonly Guar
       segments.push({
         position: [
           (start[0] + end[0]) / 2,
-          TRACK_CONFIG.guardRail.height / 2,
+          TRACK_CONFIG.guardRail.height / 2 + (surfaceOffsetHeight(samples[index], offset * side) + surfaceOffsetHeight(samples[next], offset * side)) / 2,
           (start[1] + end[1]) / 2,
         ],
         rotationY: -Math.atan2(deltaZ, deltaX),
+        rotationZ: Math.atan2(surfaceOffsetHeight(samples[next], offset * side) - surfaceOffsetHeight(samples[index], offset * side), Math.hypot(deltaX, deltaZ)),
         size: [
-          Math.hypot(deltaX, deltaZ) + 0.04,
+          Math.hypot(deltaX, deltaZ, surfaceOffsetHeight(samples[next], offset * side) - surfaceOffsetHeight(samples[index], offset * side)) + 0.04,
           TRACK_CONFIG.guardRail.height,
           TRACK_CONFIG.guardRail.thickness,
         ],
@@ -205,27 +207,32 @@ function createGuardRailSegments(samples: readonly TrackSample[]): readonly Guar
   return segments;
 }
 
-export function createBufferGeometry(data: TrackMeshData) {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new Float32BufferAttribute(data.vertices, 3));
-  geometry.setIndex(Array.from(data.indices));
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
+export function createTrackGeometry(samples: readonly TrackSample[]) {
+  const halfDrivable = TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap;
+  const DRIVABLE_MESH_DATA = createContinuousBand(samples, halfDrivable, -halfDrivable, TRACK_CONFIG.roadTop, TRACK_CONFIG.roadTop - TRACK_CONFIG.roadThickness);
+  const ROAD_MESH_DATA = createContinuousBand(
+    samples,
+    TRACK_CONFIG.roadWidth / 2,
+    -TRACK_CONFIG.roadWidth / 2,
+    TRACK_CONFIG.roadTop,
+    TRACK_CONFIG.roadTop - TRACK_CONFIG.roadThickness,
+  );
+
+  const RED_CURB_MESH_DATA = createCurbs(samples, (index) => index % 2 === 0);
+  const WHITE_CURB_MESH_DATA = createCurbs(samples, (index) => index % 2 === 1);
+  const CURB_COLLIDER_MESH_DATA = mergeMeshData(
+    RED_CURB_MESH_DATA,
+    WHITE_CURB_MESH_DATA,
+  );
+  const GUARD_RAIL_SEGMENTS = createGuardRailSegments(samples);
+
+  const ROAD_EDGE_MESH_DATA = mergeMeshData(
+    createContinuousBand(samples, TRACK_CONFIG.roadWidth / 2 - .12, TRACK_CONFIG.roadWidth / 2 - .24,
+      TRACK_CONFIG.roadTop + .008, TRACK_CONFIG.roadTop + .006),
+    createContinuousBand(samples, -TRACK_CONFIG.roadWidth / 2 + .24, -TRACK_CONFIG.roadWidth / 2 + .12,
+      TRACK_CONFIG.roadTop + .008, TRACK_CONFIG.roadTop + .006),
+  );
+
+  return { DRIVABLE_MESH_DATA, ROAD_MESH_DATA, RED_CURB_MESH_DATA, WHITE_CURB_MESH_DATA, CURB_COLLIDER_MESH_DATA, GUARD_RAIL_SEGMENTS, ROAD_EDGE_MESH_DATA };
 }
-
-export const ROAD_MESH_DATA = createContinuousBand(
-  TRACK_SAMPLES,
-  TRACK_CONFIG.roadWidth / 2,
-  -TRACK_CONFIG.roadWidth / 2,
-  TRACK_CONFIG.roadTop,
-  TRACK_CONFIG.roadTop - TRACK_CONFIG.roadThickness,
-);
-
-export const RED_CURB_MESH_DATA = createCurbs(TRACK_SAMPLES, (index) => index % 2 === 0);
-export const WHITE_CURB_MESH_DATA = createCurbs(TRACK_SAMPLES, (index) => index % 2 === 1);
-export const CURB_COLLIDER_MESH_DATA = mergeMeshData(
-  RED_CURB_MESH_DATA,
-  WHITE_CURB_MESH_DATA,
-);
-export const GUARD_RAIL_SEGMENTS = createGuardRailSegments(TRACK_SAMPLES);
+export const { DRIVABLE_MESH_DATA, ROAD_MESH_DATA, RED_CURB_MESH_DATA, WHITE_CURB_MESH_DATA, CURB_COLLIDER_MESH_DATA, GUARD_RAIL_SEGMENTS, ROAD_EDGE_MESH_DATA } = createTrackGeometry(TRACK_SAMPLES);

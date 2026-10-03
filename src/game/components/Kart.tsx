@@ -5,19 +5,11 @@ import type { KartRuntimeState } from "../runtime/kartRuntime";
 import { KART_CONFIG, KART_WHEEL_POSITIONS } from "../core/kart/kartConfig";
 import { createKartPresentation, stepKartPresentation } from "../core/kart/kartPresentation";
 import { DriftEffects } from "./DriftEffects";
+import { KartBodyModel, KartWheelModel } from "../assets/KartModel";
 
 type KartProps = {
   runtimeRef: RefObject<KartRuntimeState>;
 };
-
-function Wheel({ position }: { position: [number, number, number] }) {
-  return (
-    <mesh castShadow position={position} rotation={[0, 0, Math.PI / 2]}>
-      <cylinderGeometry args={[KART_CONFIG.wheels.radius, KART_CONFIG.wheels.radius, 0.24, 10]} />
-      <meshStandardMaterial color="#17191b" roughness={0.72} />
-    </mesh>
-  );
-}
 
 export function Kart({ runtimeRef }: KartProps) {
   const presentationRef = useRef(createKartPresentation());
@@ -59,32 +51,14 @@ export function Kart({ runtimeRef }: KartProps) {
 
   return (
     <group ref={rootRef}>
+      <group scale={KART_CONFIG.modelScale} position={[0, -0.43 * (1 - KART_CONFIG.modelScale), 0]}>
       <group ref={visualRef}>
-      <mesh castShadow position={[0, 0, 0.08]} receiveShadow>
-        <boxGeometry args={[1.3, 0.34, 1.75]} />
-        <meshStandardMaterial color="#f2b52e" metalness={0.08} roughness={0.52} />
-      </mesh>
-      <mesh castShadow position={[0, 0.13, -0.68]}>
-        <boxGeometry args={[1.12, 0.26, 0.56]} />
-        <meshStandardMaterial color="#ef5b32" metalness={0.06} roughness={0.48} />
-      </mesh>
-      <mesh castShadow position={[0, 0.35, 0.22]}>
-        <boxGeometry args={[0.78, 0.42, 0.68]} />
-        <meshStandardMaterial color="#263c4b" roughness={0.62} />
-      </mesh>
-      <mesh castShadow position={[0, 0.68, 0.16]}>
-        <sphereGeometry args={[0.27, 12, 8]} />
-        <meshStandardMaterial color="#f4d1ad" roughness={0.8} />
-      </mesh>
-      <mesh castShadow position={[0, 0.39, -0.34]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.23, 0.045, 8, 14]} />
-        <meshStandardMaterial color="#202326" roughness={0.66} />
-      </mesh>
-
+        <KartBodyModel color="#f2b52e" motionRef={runtimeRef} />
       </group>
-      {KART_WHEEL_POSITIONS.map((position, index) => <Wheel key={index} position={position} />)}
+      {KART_WHEEL_POSITIONS.map((position, index) => <KartWheelModel key={index} position={position} motionRef={runtimeRef} />)}
 
       <DriftEffects runtimeRef={runtimeRef} />
+      </group>
     </group>
   );
 }

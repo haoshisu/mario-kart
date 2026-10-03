@@ -1,13 +1,15 @@
-import { CuboidCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
-import {
-  CURB_COLLIDER_MESH_DATA,
-  GUARD_RAIL_SEGMENTS,
-  ROAD_MESH_DATA,
-} from "../track/trackGeometry";
+import { useCallback } from "react";
+import { CuboidCollider, RigidBody, TrimeshCollider, useRapier, type RapierCollider } from "@react-three/rapier";
+import { useTrack } from "../track/TrackContext";
 import { TRACK_CONFIG } from "../track/trackConfig";
 
 /** Static collision geometry. Every transform is shared with the visible track. */
 export function TrackColliders() {
+  const { rapier } = useRapier();
+  const { geometry: { GUARD_RAIL_SEGMENTS, DRIVABLE_MESH_DATA } } = useTrack();
+  const configureRoad = useCallback((collider: RapierCollider | null) => {
+    collider?.setShape(new rapier.TriMesh(DRIVABLE_MESH_DATA.vertices, DRIVABLE_MESH_DATA.indices, rapier.TriMeshFlags.FIX_INTERNAL_EDGES));
+  }, [rapier, DRIVABLE_MESH_DATA]);
   return (
     <RigidBody colliders={false} type="fixed">
       <CuboidCollider
@@ -22,15 +24,12 @@ export function TrackColliders() {
       />
 
       <TrimeshCollider
-        args={[ROAD_MESH_DATA.vertices, ROAD_MESH_DATA.indices]}
+        ref={configureRoad}
+        args={[DRIVABLE_MESH_DATA.vertices, DRIVABLE_MESH_DATA.indices]}
         friction={0}
         name="track-road"
       />
-      <TrimeshCollider
-        args={[CURB_COLLIDER_MESH_DATA.vertices, CURB_COLLIDER_MESH_DATA.indices]}
-        friction={0}
-        name="track-curb"
-      />
+
 
       {GUARD_RAIL_SEGMENTS.map((segment, index) => (
         <CuboidCollider
@@ -40,7 +39,7 @@ export function TrackColliders() {
           name="track-guard"
           position={segment.position}
           restitution={0.12}
-          rotation={[0, segment.rotationY, 0]}
+          rotation={[0, segment.rotationY, segment.rotationZ]}
         />
       ))}
     </RigidBody>

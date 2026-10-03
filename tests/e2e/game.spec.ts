@@ -1,43 +1,8 @@
+import { sampleTrackSurface } from "../../src/game/track/trackSurface";
 import { expect, test, type Page } from "@playwright/test";
-import { TRACK_CONFIG } from "../../src/game/track/trackConfig";
+import { TRACK_SAMPLES } from "../../src/game/track/trackPath";
 
-function createTrackPoints() {
-  const points: Array<readonly [number, number]> = [];
-  const halfStraight = TRACK_CONFIG.straightLength / 2;
-
-  for (let index = 0; index < TRACK_CONFIG.straightSegments; index += 1) {
-    const progress = index / TRACK_CONFIG.straightSegments;
-    points.push([
-      -halfStraight + TRACK_CONFIG.straightLength * progress,
-      -TRACK_CONFIG.turnRadius,
-    ]);
-  }
-  for (let index = 0; index < TRACK_CONFIG.curveSegments; index += 1) {
-    const angle = -Math.PI / 2 + (Math.PI * index) / TRACK_CONFIG.curveSegments;
-    points.push([
-      halfStraight + Math.cos(angle) * TRACK_CONFIG.turnRadius,
-      Math.sin(angle) * TRACK_CONFIG.turnRadius,
-    ]);
-  }
-  for (let index = 0; index < TRACK_CONFIG.straightSegments; index += 1) {
-    const progress = index / TRACK_CONFIG.straightSegments;
-    points.push([
-      halfStraight - TRACK_CONFIG.straightLength * progress,
-      TRACK_CONFIG.turnRadius,
-    ]);
-  }
-  for (let index = 0; index < TRACK_CONFIG.curveSegments; index += 1) {
-    const angle = Math.PI / 2 + (Math.PI * index) / TRACK_CONFIG.curveSegments;
-    points.push([
-      -halfStraight + Math.cos(angle) * TRACK_CONFIG.turnRadius,
-      Math.sin(angle) * TRACK_CONFIG.turnRadius,
-    ]);
-  }
-
-  return points;
-}
-
-const TRACK_POINTS = createTrackPoints();
+const TRACK_POINTS = TRACK_SAMPLES.map((sample) => sample.position);
 
 function monitorBrowserErrors(page: Page) {
   const errors: string[] = [];
@@ -50,7 +15,7 @@ function monitorBrowserErrors(page: Page) {
   return errors;
 }
 
-async function openReadyGame(page: Page, path = "/game") {
+async function openReadyGame(page: Page, path = "/game?mode=solo") {
   await page.goto(path);
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.getByTestId("game-hud")).toBeVisible();
@@ -101,7 +66,7 @@ async function waitForNumericAttribute(
 
 test("countdown locks movement and starts the race clock at GO", async ({ page }) => {
   const browserErrors = monitorBrowserErrors(page);
-  await openReadyGame(page, "/game?e2e=1");
+  await openReadyGame(page, "/game?mode=solo&e2e=1");
   await page.evaluate(() => window.dispatchEvent(new Event("kart-race-test-restart")));
   await expect(page.getByTestId("countdown-cue")).toHaveText("3");
 
@@ -152,7 +117,7 @@ test("loads, accelerates, charges drift, and switches inspection mode without er
 
 test("checkpoint trajectory completes three laps, locks the result, and restarts", async ({ page }) => {
   const browserErrors = monitorBrowserErrors(page);
-  await openReadyGame(page, "/game?e2e=1");
+  await openReadyGame(page, "/game?mode=solo&e2e=1");
   const runtime = page.getByTestId("kart-runtime");
 
   for (let crossing = 0; crossing < 12; crossing += 1) {
@@ -177,7 +142,7 @@ test("checkpoint trajectory completes three laps, locks the result, and restarts
 
 test("out-of-bounds recovery returns to the latest valid checkpoint with input protection", async ({ page }) => {
   const browserErrors = monitorBrowserErrors(page);
-  await openReadyGame(page, "/game?e2e=1");
+  await openReadyGame(page, "/game?mode=solo&e2e=1");
   const runtime = page.getByTestId("kart-runtime");
 
   await page.evaluate(() => window.dispatchEvent(new Event("kart-race-test-advance")));
@@ -512,12 +477,13 @@ for (const turnKey of ["KeyA", "KeyD"]) {
       for (let sample = 0; sample < 80; sample += 1) {
         if (sample === 40) await page.keyboard.down("Space");
         await page.waitForTimeout(100);
-        const height = Number(await runtime.getAttribute("data-y"));
+        const pose = await runtime.evaluate((node) => ({ x: Number(node.getAttribute("data-x")), y: Number(node.getAttribute("data-y")), z: Number(node.getAttribute("data-z")) }));
+        const height = pose.y - sampleTrackSurface(pose.x, pose.z, TRACK_SAMPLES).height;
         minimumHeight = Math.min(minimumHeight, height);
         maximumHeight = Math.max(maximumHeight, height);
       }
       expect(Math.abs(Number(await runtime.getAttribute("data-yaw")) - startYaw)).toBeGreaterThan(1);
-      // Road/curb heights are 0.08/0.15; the wheel bottoms sit 0.43 below the root.
+      // Clearance must stay bounded relative to the banked, elevated road.
       expect(minimumHeight).toBeGreaterThan(0.4);
       expect(maximumHeight).toBeLessThan(0.65);
       expect(errors).toEqual([]);

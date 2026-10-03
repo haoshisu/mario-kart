@@ -41,6 +41,7 @@ export function stepKartSimulation(
   current: KartSimulationState,
   rawInput: KartInput,
   deltaTime: number,
+  externalBoost?: Readonly<{ acceleration: number; maximumSpeed: number }>,
 ): KartStepResult {
   const dt = Math.max(0, Math.min(deltaTime, 0.05));
   const input = normalizeInput(rawInput);
@@ -67,12 +68,13 @@ export function stepKartSimulation(
   if (driftUpdate.state.turboRemaining > 0 && turboConfig) {
     speed += turboConfig.acceleration * dt;
   }
+  if (externalBoost) speed += externalBoost.acceleration * dt;
 
   const maximumSpeed =
     driftUpdate.state.turboRemaining > 0 && turboConfig
       ? turboConfig.maxSpeed
       : KART_CONFIG.maxForwardSpeed;
-  speed = clamp(speed, -KART_CONFIG.maxReverseSpeed, maximumSpeed);
+  speed = clamp(speed, -KART_CONFIG.maxReverseSpeed, Math.max(maximumSpeed, externalBoost?.maximumSpeed ?? 0));
 
   const speedRatio = clamp(Math.abs(speed) / KART_CONFIG.steeringFullSpeed, 0, 1);
   const canSteer = Math.abs(speed) >= KART_CONFIG.minimumSteeringSpeed;
@@ -101,4 +103,10 @@ export function getKartLateralSpeed(
   const target = drifting ? -clamp(steer, -1, 1) * Math.abs(speed) * Math.tan(KART_CONFIG.driftSlipAngle) : 0;
   const grip = drifting ? KART_CONFIG.driftLateralGrip : KART_CONFIG.normalLateralGrip;
   return target + (current - target) * Math.exp(-grip * dt);
+}
+
+/** Called only at the authoritative countdown-to-racing transition. */
+export function applyLaunchBoost(state: KartSimulationState): KartSimulationState {
+  return { ...state, speed: KART_CONFIG.launch.speed,
+    drift: { ...createInitialDriftState(), turboTier: 2, turboRemaining: KART_CONFIG.launch.duration } };
 }

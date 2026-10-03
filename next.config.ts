@@ -4,11 +4,17 @@ import { networkInterfaces } from "node:os";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // LAN hosts must be allowed explicitly for Next's development client to load.
-  allowedDevOrigins: Object.values(networkInterfaces()).flatMap((interfaces) =>
+  allowedDevOrigins: [...new Set([
+    ...(process.env.DEV_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((hostname) => hostname.trim())
+      .filter(Boolean),
+    ...Object.values(networkInterfaces()).flatMap((interfaces) =>
     (interfaces ?? [])
       .filter((address) => address.family === "IPv4" && !address.internal)
       .map((address) => address.address),
-  ),
+    ),
+  ])],
 };
 
 export default nextConfig;

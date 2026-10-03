@@ -1,13 +1,9 @@
 export type TrackConfig = Readonly<{
- straightLength: number
- turnRadius: number
  roadWidth: number
  roadTop: number
  roadThickness: number
  curbWidth: number
  curbHeight: number
- straightSegments: number
- curveSegments: number
  guardRail: Readonly<{
   gap: number
   height: number
@@ -25,32 +21,28 @@ export type TrackConfig = Readonly<{
  * values. Changing a dimension here therefore cannot leave physics behind.
  */
 export const TRACK_CONFIG = {
- straightLength: 28,
- turnRadius: 10.5,
- roadWidth: 6.4,
+ roadWidth: 8.4,
  roadTop: 0.08,
- roadThickness: 0.08,
+ roadThickness: 0.65,
  curbWidth: 0.7,
  curbHeight: 0.07,
- straightSegments: 28,
- curveSegments: 36,
  guardRail: {
   gap: 0.5,
   height: 0.92,
   thickness: 0.28,
  },
  ground: {
-  width: 68,
-  depth: 52,
+  width: 150,
+  depth: 130,
   thickness: 0.4,
  },
 } as const satisfies TrackConfig
 
 export const TRACK_COLORS = {
- asphalt: "#30363a",
+ asphalt: "#65758b",
  curbRed: "#db3b37",
  curbWhite: "#f2ead8",
- grass: "#527a3b",
- railRed: "#c93331",
+ grass: "#79c744",
+ railRed: "#179dae",
  railWhite: "#e8e2d3",
 } as const

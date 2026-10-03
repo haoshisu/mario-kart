@@ -18,6 +18,7 @@ export type KartRuntimeState = {
   turboRemaining: number;
   turboTier: DriftTier;
   collisionShake: number;
+  finished: boolean;
 };
 
 export type KartTelemetry = Readonly<{
@@ -54,6 +55,7 @@ export function createKartRuntimeState(): KartRuntimeState {
     turboRemaining: 0,
     turboTier: 0,
     collisionShake: 0,
+    finished: false,
   };
 }
 

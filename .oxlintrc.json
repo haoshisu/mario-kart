@@ -8,5 +8,5 @@
     "browser": true,
     "node": true
   },
-  "ignorePatterns": [".next/**", "node_modules/**"]
+  "ignorePatterns": [".next/**", "node_modules/**", "public/draco/**"]
 }

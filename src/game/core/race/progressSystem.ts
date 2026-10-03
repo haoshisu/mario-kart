@@ -1,4 +1,4 @@
-import { CHECKPOINTS, RACE_ROUTE_SAMPLES, type Point2 } from "./raceTrack";
+import { DEFAULT_RACE_TRACK, type Point2 } from "./raceTrack";
 import type { RaceProgress } from "./raceTypes";
 
 export type TrackProjection = Readonly<{
@@ -6,19 +6,15 @@ export type TrackProjection = Readonly<{
   distanceFromTrack: number;
 }>;
 
-const ROUTE_LENGTH = RACE_ROUTE_SAMPLES.reduce((length, sample, index) => {
-  const next = RACE_ROUTE_SAMPLES[(index + 1) % RACE_ROUTE_SAMPLES.length];
-  return length + Math.hypot(
-    next.position[0] - sample.position[0],
-    next.position[1] - sample.position[1],
-  );
-}, 0);
-
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-export function projectOntoRaceRoute(position: Point2): TrackProjection {
+export function projectOntoRaceRoute(position: Point2, track = DEFAULT_RACE_TRACK): TrackProjection {
+  const { RACE_ROUTE_SAMPLES } = track;
+  const last = RACE_ROUTE_SAMPLES[RACE_ROUTE_SAMPLES.length - 1];
+  const first = RACE_ROUTE_SAMPLES[0];
+  const ROUTE_LENGTH = last.distance + Math.hypot(last.position[0] - first.position[0], last.position[1] - first.position[1]);
   let nearestDistanceSquared = Number.POSITIVE_INFINITY;
   let nearestDistanceAlongRoute = 0;
 
@@ -58,7 +54,9 @@ export function calculateRaceProgress(
   expectedCheckpointIndex: number,
   totalLaps: number,
   projection: TrackProjection,
+  track = DEFAULT_RACE_TRACK,
 ): RaceProgress {
+  const { CHECKPOINTS } = track;
   const previousFraction =
     expectedCheckpointIndex === 0
       ? 0

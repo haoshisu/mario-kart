@@ -1,8 +1,10 @@
 import { createServer as createHttpServer } from "node:http";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
+import RAPIER from "@dimforge/rapier3d-compat";
 import { NETWORK_CONFIG } from "../src/game/network/networkConfig";
 import { RaceRoom } from "./rooms/RaceRoom";
+import { allowedOrigin, operationsSnapshot } from "./operations";
 
 type HttpRequest = {
   headers: { origin?: string };
@@ -15,19 +17,28 @@ type HttpResponse = {
   json: (body: unknown) => void;
 };
 
-export function createGameServer() {
+let rapierReady: Promise<void> | null = null;
+
+export async function createGameServer() {
+  rapierReady ??= RAPIER.init();
+  await rapierReady;
   const httpServer = createHttpServer();
   const transport = new WebSocketTransport({
     server: httpServer,
-    pingInterval: 3_000,
-    pingMaxRetries: 2,
+    pingInterval: NETWORK_CONFIG.heartbeatIntervalMs,
+    pingMaxRetries: NETWORK_CONFIG.heartbeatMaxRetries,
     maxPayload: 4 * 1_024,
+    verifyClient: (info, done) => done(allowedOrigin(info.origin), 403, "Origin denied"),
   });
   const gameServer = new Server({
     greet: false,
     transport,
     express: (app) => {
       app.use((request: HttpRequest, response: HttpResponse, next: () => void) => {
+        if (!allowedOrigin(request.headers.origin)) {
+          response.sendStatus(403);
+          return;
+        }
         response.header("Access-Control-Allow-Origin", request.headers.origin ?? "*");
         response.header("Vary", "Origin");
         response.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -39,7 +50,8 @@ export function createGameServer() {
         next();
       });
       app.get("/health", (_request: HttpRequest, response: HttpResponse) => {
-        response.json({ ok: true, roomType: NETWORK_CONFIG.roomType });
+        response.header("Cache-Control", "no-store");
+        response.json({ ok: true, roomType: NETWORK_CONFIG.roomType, ...operationsSnapshot() });
       });
     },
   });
