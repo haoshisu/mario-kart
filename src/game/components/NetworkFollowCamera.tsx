@@ -12,13 +12,13 @@ export function NetworkFollowCamera({ playerId, snapshotsRef }: {
   const track = useTrack();
   const surface = useRef(createSurfaceResult());
   const stateRef = useRef(createChaseCamera());
-  useFrame(({ camera, size }, delta) => {
+  useFrame(({ camera, size, clock }, delta) => {
     if ("fov" in camera) {
       // Preserve horizontal visibility on narrow phones instead of cropping the kart.
       const fov = 2 * Math.atan(Math.tan(22 * Math.PI / 180) / Math.min(1, size.width / size.height)) * 180 / Math.PI;
       if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
     }
-    const snapshot = snapshotsRef.current.sample();
+    const snapshot = snapshotsRef.current.sampleFrame(clock.elapsedTime);
     const player = snapshot?.players.find((entry) => entry.id === playerId);
     if (!snapshot || !player) return;
     const state = stateRef.current;

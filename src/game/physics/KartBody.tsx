@@ -1,3 +1,5 @@
+import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
+import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, STUNT_CONFIG } from "../core/stunts/stuntSystem";
 import { ITEM_CONFIG } from "../core/items/itemConfig";
 import { roadQuaternion } from "../track/trackSurface";
 import { useTrack } from "../track/TrackContext";
@@ -61,6 +63,8 @@ export function KartBody({
 }: KartBodyProps) {
   const track = useTrack();
   const padCooldown = useRef(0);
+  const stunt = useRef(createStuntState());
+  const roadSurface = useRef(createSurfaceResult());
   const groundKart = useKartGrounding();
   const bodyRef = useRef<RapierRigidBody>(null);
   const simulationRef = useRef(createInitialKartState(KART_START.yaw));
@@ -81,6 +85,7 @@ export function KartBody({
     position: readonly [number, number, number],
     yaw: number,
   ) => {
+    stunt.current = createStuntState();
     simulationRef.current = createInitialKartState(yaw);
     rotationRef.current.setFromAxisAngle(UP_AXIS, yaw);
     body.setTranslation({ x: position[0], y: position[1], z: position[2] }, true);
@@ -98,6 +103,7 @@ export function KartBody({
       runtime.position.z = position[2];
       runtime.yaw = yaw;
       runtime.poseRevision += 1;
+      runtime.stuntProgress = 0;
       runtime.speed = 0;
       runtime.drifting = false;
       runtime.driftCharge = 0;
@@ -156,7 +162,7 @@ export function KartBody({
     }
     const step = stepKartSimulation(
       simulationRef.current,
-      effectiveInput,
+      stunt.current.active ? { ...effectiveInput, drift: false, steer: effectiveInput.steer * STUNT_CONFIG.airSteering } : effectiveInput,
       KART_CONFIG.fixedTimeStep,
     );
     simulationRef.current = step.state;
@@ -181,16 +187,20 @@ export function KartBody({
     );
 
     rotationRef.current.setFromAxisAngle(UP_AXIS, step.state.yaw);
-    const surface = groundKart(body);
+    const position = body.translation();
+    const launched = stepStuntLaunch(stunt.current, position.x, position.y, position.z,
+      step.state.yaw, step.state.speed, track.ramps, canDrive, KART_CONFIG.fixedTimeStep);
+    const surface = stunt.current.active ? null : groundKart(body);
     body.setRotation(surface ? roadQuaternion(step.state.yaw, surface) : rotationRef.current, true);
 
     const command = velocityCommandRef.current;
     command.x = forward.x * step.state.speed + rightX * retainedLateralSpeed;
-    command.y = currentVelocity.y;
+    command.y = launched ? STUNT_CONFIG.launchSpeed : currentVelocity.y;
     command.z = forward.z * step.state.speed + rightZ * retainedLateralSpeed;
     if (surface) command.y = command.x * surface.gradientX + command.z * surface.gradientZ;
     body.setLinvel(command, true);
 
+    runtime.stuntProgress = stuntProgress(stunt.current);
     runtime.yaw = step.state.yaw;
     runtime.speed = step.state.speed;
     runtime.steer = effectiveInput.steer;
@@ -222,7 +232,18 @@ export function KartBody({
       return;
     }
 
-    groundKart(body);
+    const point = body.translation();
+    if (stepStuntLaunch(stunt.current, point.x, point.y, point.z, simulationRef.current.yaw,
+      simulationRef.current.speed, track.ramps, inputEnabled && raceStateRef.current.phase === "RACING", 0)) {
+      const velocity = body.linvel();
+      body.setLinvel({ x: velocity.x, y: STUNT_CONFIG.launchSpeed, z: velocity.z }, true);
+    }
+    const road = sampleTrackSurface(point.x, point.z, track.samples, roadSurface.current);
+    if (finishStunt(stunt.current, point.y - road.height - KART_START.position[1], body.linvel().y, road.distance)) {
+      simulationRef.current = applyStuntBoost(simulationRef.current);
+    }
+    if (!stunt.current.active) groundKart(body);
+    runtime.stuntProgress = stuntProgress(stunt.current);
     const translation = body.translation();
     runtime.position.x = translation.x;
     runtime.position.y = translation.y;
@@ -311,6 +332,7 @@ export function KartBody({
       speedKph: Math.abs(simulationRef.current.speed) * 3.6,
       position: [runtime.position.x, runtime.position.z],
       height: runtime.position.y,
+      stuntProgress: runtime.stuntProgress,
       yaw: simulationRef.current.yaw,
       drifting: simulationRef.current.drift.active,
       driftReady: simulationRef.current.drift.chargeTier > 0,

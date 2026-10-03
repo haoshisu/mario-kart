@@ -16,16 +16,10 @@ import {
   useEffect,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
-import { EMPTY_KART_INPUT, type KartInput } from "../core/kart/kartTypes";
-import {
-  TouchInputController,
-  composeControllerInput,
-  resetForBackground,
-  type TouchControl,
-} from "../input/touchInput";
-import { TiltInputController, type DeviceTiltSample } from "../input/tiltInput";
+import { type KartInput } from "../core/kart/kartTypes";
+import { TouchControlPad } from "../components/TouchControlPad";
+import { useControllerInput } from "../input/useControllerInput";
 import { getGameServerEndpoint } from "./endpoint";
 import {
   CLIENT_RECONNECT_TIMEOUT_MS,
@@ -54,10 +48,6 @@ type ConnectionPhase =
   | "closed"
   | "error";
 
-type OrientationPermissionConstructor = typeof DeviceOrientationEvent & {
-  requestPermission?: () => Promise<"granted" | "denied">;
-};
-
 type MobileControllerProps = {
   roomId: string;
 };
@@ -80,10 +70,6 @@ function connectionErrorMessage(error: unknown) {
   return `連線失敗：${message}`;
 }
 
-function getScreenAngle() {
-  return window.screen.orientation?.angle ?? 0;
-}
-
 function roomStorageKey(roomId: string) {
   return `kart-lab:controller:${roomId}`;
 }
@@ -104,22 +90,14 @@ export function MobileController({ roomId }: MobileControllerProps) {
   });
   const [snapshot, setSnapshot] = useState<RaceSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<KartInput>(EMPTY_KART_INPUT);
-  const [tiltEnabled, setTiltEnabled] = useState(false);
-  const [tiltPermission, setTiltPermission] = useState<"idle" | "granted" | "denied">("idle");
-  const [sensitivity, setSensitivity] = useState(28);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [reconnectToken, setReconnectToken] = useState<string | null>(null);
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
+  const ownPlayer = snapshot?.players.find((player) => player.id === currentPlayerId);
   const roomRef = useRef<Room | null>(null);
   const nicknameRef = useRef(nickname);
   const colorRef = useRef(color);
   const sequenceRef = useRef(0);
-  const touchRef = useRef(new TouchInputController());
-  const tiltRef = useRef(new TiltInputController(28));
-  const tiltSteerRef = useRef(0);
-  const lastTiltSampleRef = useRef<DeviceTiltSample | null>(null);
-  const inputRef = useRef<KartInput>(EMPTY_KART_INPUT);
   const reconnectAttemptedRef = useRef(false);
   const roomWasClosedRef = useRef(false);
   const reconnectingRef = useRef(false);
@@ -155,29 +133,19 @@ export function MobileController({ roomId }: MobileControllerProps) {
     senderRef.current = null;
   }, []);
 
-  const syncInput = useCallback(() => {
-    const next = composeControllerInput(
-      touchRef.current.read(),
-      tiltSteerRef.current,
-      tiltEnabled,
-    );
-    inputRef.current = next;
-    setPreview(next);
-    sendInput(next);
-  }, [sendInput, tiltEnabled]);
-
-  const releaseAllInput = useCallback(() => {
-    touchRef.current.reset();
-    tiltSteerRef.current = 0;
-    tiltRef.current.calibrate();
-    inputRef.current = EMPTY_KART_INPUT;
-    setPreview(EMPTY_KART_INPUT);
-    sendInput(EMPTY_KART_INPUT);
-  }, [sendInput]);
+  const { preview, tiltEnabled, setTiltEnabled, tiltPermission, sensitivity,
+    requestTilt, calibrateTilt, updateSensitivity, releaseAllInput, resetInput, updateTouch, keyboardSend } = useControllerInput({
+    sendInput, keyboard, setError,
+    autoAccelerate: phase === "connected" && roomStatus.phase === "racing" && ownPlayer?.status === "racing",
+    heartbeatEnabled: phase === "connected" && (roomStatus.phase === "countdown" || roomStatus.phase === "racing"),
+  });
 
   const bindRoom = useCallback((room: Room) => {
     const publishDiagnostics = createSnapshotDiagnostics();
     snapshotsRef.current.clear();
+    senderRef.current?.dispose();
+    senderRef.current = null;
+    resetInput();
     roomRef.current = room;
     setCurrentPlayerId(room.sessionId);
     roomWasClosedRef.current = false;
@@ -223,12 +191,12 @@ export function MobileController({ roomId }: MobileControllerProps) {
       }
       const now = Date.now();
       const roundTripMs = Math.round(Math.min(5_000, Math.max(0, now - applied.sentAt)));
-      setLatencyMs(roundTripMs);
       if (
         now - lastLatencyReportAtRef.current >=
         NETWORK_CONFIG.latencyReportMinimumIntervalMs
       ) {
         lastLatencyReportAtRef.current = now;
+        setLatencyMs(roundTripMs);
         room.send(ROOM_MESSAGE.latencyReport, { rttMs: roundTripMs });
       }
     });
@@ -247,9 +215,9 @@ export function MobileController({ roomId }: MobileControllerProps) {
       }
     });
     room.onDrop(() => {
-      touchRef.current.reset();
-      inputRef.current = EMPTY_KART_INPUT;
-      setPreview(EMPTY_KART_INPUT);
+      resetInput();
+      senderRef.current?.dispose();
+      senderRef.current = null;
       reconnectingRef.current = true;
       setReconnectToken(room.reconnectionToken);
       setPhase("reconnecting");
@@ -276,9 +244,9 @@ export function MobileController({ roomId }: MobileControllerProps) {
       ) {
         return;
       }
-      touchRef.current.reset();
-      inputRef.current = EMPTY_KART_INPUT;
-      setPreview(EMPTY_KART_INPUT);
+      resetInput();
+      senderRef.current?.dispose();
+      senderRef.current = null;
       reconnectingRef.current = true;
       setReconnectToken(room.reconnectionToken);
       setPhase("reconnecting");
@@ -287,7 +255,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
 
     setPhase("connected");
     setError(null);
-  }, [releaseAllInput, roomId]);
+  }, [releaseAllInput, resetInput, roomId]);
 
   useEffect(() => {
     if (!reconnectToken) {
@@ -405,119 +373,8 @@ export function MobileController({ roomId }: MobileControllerProps) {
     }
   }, [bindRoom, roomId]);
 
-  useEffect(() => {
-    if (
-      phase !== "connected" ||
-      (roomStatus.phase !== "countdown" && roomStatus.phase !== "racing")
-    ) {
-      return;
-    }
-    sendInput(inputRef.current);
-    const inputTimer = window.setInterval(
-      () => sendInput(inputRef.current),
-      1_000 / NETWORK_CONFIG.inputRateHz,
-    );
-    return () => {
-      window.clearInterval(inputTimer);
-    };
-  }, [phase, roomStatus.phase, sendInput]);
 
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (resetForBackground(touchRef.current, document.hidden)) {
-        releaseAllInput();
-      }
-    };
-    const handleBackground = () => releaseAllInput();
-    document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("blur", handleBackground);
-    window.addEventListener("pagehide", handleBackground);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("blur", handleBackground);
-      window.removeEventListener("pagehide", handleBackground);
-    };
-  }, [releaseAllInput]);
 
-  useEffect(() => {
-    if (!tiltEnabled) {
-      tiltSteerRef.current = 0;
-      syncInput();
-      return;
-    }
-
-    const handleOrientation = (event: DeviceOrientationEvent) => {
-      const sample: DeviceTiltSample = {
-        beta: event.beta,
-        gamma: event.gamma,
-        screenAngle: getScreenAngle(),
-      };
-      lastTiltSampleRef.current = sample;
-      tiltSteerRef.current = tiltRef.current.update(sample);
-      syncInput();
-    };
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, [syncInput, tiltEnabled]);
-
-  const requestTilt = useCallback(async () => {
-    const orientation = window.DeviceOrientationEvent as OrientationPermissionConstructor | undefined;
-    if (!orientation) {
-      setTiltPermission("denied");
-      setError("此瀏覽器不支援方向感測器；可繼續使用觸控方向鍵。");
-      return;
-    }
-
-    try {
-      const permission = orientation.requestPermission
-        ? await orientation.requestPermission()
-        : "granted";
-      if (permission !== "granted") {
-        setTiltPermission("denied");
-        setTiltEnabled(false);
-        setError("方向感測器權限遭拒；觸控方向鍵仍可使用。");
-        return;
-      }
-      tiltRef.current.calibrate();
-      setTiltPermission("granted");
-      setTiltEnabled(true);
-      setError(null);
-    } catch {
-      setTiltPermission("denied");
-      setTiltEnabled(false);
-      setError("無法啟用方向感測器；觸控方向鍵仍可使用。");
-    }
-  }, []);
-
-  const updateTouch = useCallback((pointerId: number, control: TouchControl, pressed: boolean) => {
-    if (pressed) {
-      touchRef.current.press(pointerId, control);
-    } else {
-      touchRef.current.release(pointerId);
-    }
-    syncInput();
-  }, [syncInput]);
-
-  const pointerDown = (control: TouchControl) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    updateTouch(event.pointerId, control, true);
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic browser tests may not create an active native pointer.
-    }
-  };
-  const pointerUp = (control: TouchControl) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    updateTouch(event.pointerId, control, false);
-  };
-
-  const keyboardSend = useCallback((input: KartInput) => {
-    inputRef.current = input;
-    setPreview(input);
-    sendInput(input);
-  }, [sendInput]);
-  const ownPlayer = snapshot?.players.find((player) => player.id === currentPlayerId);
   useNetworkKeyboard(keyboard && phase === "connected" && roomStatus.phase === "racing", keyboardSend, () => {
     if (ownPlayer?.item.held && ownPlayer.item.cooldown === 0 && ownPlayer.item.lockRemaining === 0) {
       roomRef.current?.send(ROOM_MESSAGE.useItem, { revision: ownPlayer.item.revision });
@@ -570,7 +427,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
   }
 
   return (
-    <main className="controller-shell controller-shell--active player-screen" data-testid="mobile-controller" data-throttle={preview.throttle} data-steer={preview.steer}
+    <main className="controller-shell controller-shell--active player-screen" data-testid="mobile-controller" data-throttle={preview.throttle} data-brake={preview.brake} data-drift={preview.drift} data-steer={preview.steer}
       data-phase={roomStatus.phase} data-x={ownPlayer?.position[0]} data-z={ownPlayer?.position[2]}
       data-yaw={ownPlayer?.yaw} data-speed={ownPlayer?.speed} data-status={ownPlayer?.status}
       data-drift-tier={ownPlayer?.driftTier} data-turbo-tier={ownPlayer?.turboTier}>
@@ -606,7 +463,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
       {roomStatus.phase === "countdown" || roomStatus.phase === "racing" ? <>
       <ControllerItemPanel snapshot={snapshot} playerId={currentPlayerId} connected={phase === "connected"}
         onUse={(revision) => roomRef.current?.send(ROOM_MESSAGE.useItem, { revision })} />
-      <p className="player-race-status">{ownPlayer ? `第 ${ownPlayer.rank} 名 · 第 ${Math.min(ownPlayer.completedLaps + 1, ownPlayer.totalLaps)}/${ownPlayer.totalLaps} 圈` : "同步中"} · 建議橫向遊玩</p>
+      <p className="player-race-status">{ownPlayer ? `第 ${ownPlayer.rank} 名 · 第 ${Math.min(ownPlayer.completedLaps + 1, ownPlayer.totalLaps)}/${ownPlayer.totalLaps} 圈` : "同步中"} {!keyboard ? " · 自動加速" : ""} · 建議橫向遊玩</p>
       <section className="controller-options" aria-label="控制器設定">
         <button type="button" onClick={() => { releaseAllInput(); setTiltEnabled(false); setKeyboard(!keyboard); }}>{keyboard ? "切換觸控操作" : "切換鍵盤操作"}</button>
         {keyboard ? <DrivingGuide /> : null}
@@ -616,7 +473,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         {tiltEnabled ? (
           <>
             <button
-              onClick={() => tiltRef.current.calibrate(lastTiltSampleRef.current ?? undefined)}
+              onClick={calibrateTilt}
               type="button"
             >
               校正
@@ -629,8 +486,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
                 min="10"
                 onChange={(event) => {
                   const value = Number(event.target.value);
-                  setSensitivity(value);
-                  tiltRef.current.setSensitivity(value);
+                  updateSensitivity(value);
                 }}
                 type="range"
                 value={sensitivity}
@@ -640,17 +496,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         ) : null}
       </section>
 
-      {!keyboard ? <section className="controller-pad" aria-label="卡丁車觸控控制">
-        <div className="controller-pad__steering">
-          <ControlButton control="left" label="左轉" onDown={pointerDown("left")} onUp={pointerUp("left")} pressed={preview.steer < 0}>←</ControlButton>
-          <ControlButton control="right" label="右轉" onDown={pointerDown("right")} onUp={pointerUp("right")} pressed={preview.steer > 0}>→</ControlButton>
-        </div>
-        <div className="controller-pad__actions">
-          <ControlButton control="drift" label="漂移" onDown={pointerDown("drift")} onUp={pointerUp("drift")} pressed={preview.drift}>DRIFT</ControlButton>
-          <ControlButton control="brake" label="煞車或倒車" onDown={pointerDown("brake")} onUp={pointerUp("brake")} pressed={preview.brake > 0}>BRAKE</ControlButton>
-          <ControlButton control="throttle" label="加速" onDown={pointerDown("throttle")} onUp={pointerUp("throttle")} pressed={preview.throttle > 0}>GAS</ControlButton>
-        </div>
-      </section> : null}
+      {!keyboard ? <TouchControlPad input={preview} updateTouch={updateTouch} /> : null}
       </> : null}
     </main>
   );
@@ -709,31 +555,5 @@ function ControllerResult({
       </ol>
       <small>等待 Host 再玩一次或返回 Lobby</small>
     </section>
-  );
-}
-
-type ControlButtonProps = {
-  children: React.ReactNode;
-  control: TouchControl;
-  label: string;
-  pressed: boolean;
-  onDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-};
-
-function ControlButton({ children, control, label, pressed, onDown, onUp }: ControlButtonProps) {
-  return (
-    <button
-      aria-label={label}
-      className={pressed ? "is-pressed" : undefined}
-      data-control={control}
-      onLostPointerCapture={onUp}
-      onPointerCancel={onUp}
-      onPointerDown={onDown}
-      onPointerUp={onUp}
-      type="button"
-    >
-      {children}
-    </button>
   );
 }

@@ -1,4 +1,9 @@
+import { applyRampSurface } from "../core/stunts/stuntSystem";
 import { getKartForward } from "../core/kart/kartPhysics";
+import { KART_CONFIG, KART_START } from "../core/kart/kartConfig";
+import { TRACK_CONFIG } from "../track/trackConfig";
+import { getTrackData } from "../track/trackData";
+import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
 import { NETWORK_CONFIG } from "./networkConfig";
 import type { PlayerSnapshot, RaceSnapshot } from "./protocol";
 
@@ -14,6 +19,7 @@ function interpolatePlayer(
 ): PlayerSnapshot {
   const distance = Math.hypot(
     to.position[0] - from.position[0],
+    to.position[1] - from.position[1],
     to.position[2] - from.position[2],
   );
   if (distance > NETWORK_CONFIG.teleportDistance) {
@@ -30,6 +36,7 @@ function interpolatePlayer(
     yaw: interpolateAngle(from.yaw, to.yaw, amount),
     speed: mix(from.speed, to.speed),
     steer: mix(from.steer, to.steer),
+    stuntProgress: from.stuntProgress > 0 && to.stuntProgress > 0 ? mix(from.stuntProgress, to.stuntProgress) : to.stuntProgress,
     spinOutRemaining: mix(from.spinOutRemaining, to.spinOutRemaining),
     raceFraction: mix(from.raceFraction, to.raceFraction),
   };
@@ -59,8 +66,12 @@ function interpolateSnapshots(from: RaceSnapshot, to: RaceSnapshot, amount: numb
   };
 }
 
-function extrapolateSnapshot(snapshot: RaceSnapshot, milliseconds: number): RaceSnapshot {
+function extrapolateSnapshot(snapshot: RaceSnapshot, previous: RaceSnapshot | undefined, milliseconds: number): RaceSnapshot {
   const seconds = Math.min(milliseconds, NETWORK_CONFIG.maximumExtrapolationMs) / 1_000;
+  const track = getTrackData(snapshot.trackId);
+  const samples = track.samples;
+  const surface = createSurfaceResult();
+  const roadEdge = TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap;
   return {
     ...snapshot,
     serverTime: snapshot.serverTime + seconds * 1_000,
@@ -70,13 +81,32 @@ function extrapolateSnapshot(snapshot: RaceSnapshot, milliseconds: number): Race
         return player;
       }
       const forward = getKartForward(player.yaw);
+      const x = player.position[0] + forward.x * player.speed * seconds;
+      const z = player.position[2] + forward.z * player.speed * seconds;
+      applyRampSurface(player.position[0], player.position[2], track.ramps, sampleTrackSurface(player.position[0], player.position[2], samples, surface));
+      const height = surface.height;
+      const onRoad = player.stuntProgress === 0 && surface.distance <= roadEdge &&
+        Math.abs(player.position[1] - height - KART_START.position[1]) <= KART_CONFIG.grounding.snapDistance;
+      let y = player.position[1];
+      if (onRoad) {
+        applyRampSurface(x, z, track.ramps, sampleTrackSurface(x, z, samples, surface));
+        // Preserve the server's clearance and follow both grade and banking.
+        // Never project a car leaving the road onto a remote road segment.
+        if (surface.distance <= roadEdge) y += surface.height - height;
+      } else if (previous?.trackId === snapshot.trackId && previous.phase === snapshot.phase) {
+        const from = previous.players.find((entry) => entry.id === player.id);
+        const duration = (snapshot.serverTime - previous.serverTime) / 1_000;
+        if (from && duration > 0 && Math.hypot(
+          player.position[0] - from.position[0], player.position[1] - from.position[1],
+          player.position[2] - from.position[2],
+        ) <= NETWORK_CONFIG.teleportDistance) {
+          // Off-road motion follows observed falling velocity, not road height.
+          y += (player.position[1] - from.position[1]) / duration * seconds;
+        }
+      }
       return {
         ...player,
-        position: [
-          player.position[0] + forward.x * player.speed * seconds,
-          player.position[1],
-          player.position[2] + forward.z * player.speed * seconds,
-        ],
+        position: [x, y, z],
       };
     }),
   };
@@ -85,6 +115,8 @@ function extrapolateSnapshot(snapshot: RaceSnapshot, milliseconds: number): Race
 export class SnapshotBuffer {
   private snapshots: RaceSnapshot[] = [];
   private clockOffsetMs: number | null = null;
+  private frame: number | null = null;
+  private frameSnapshot: RaceSnapshot | null = null;
 
   add(snapshot: RaceSnapshot, receivedAt = Date.now()) {
     if (
@@ -124,7 +156,18 @@ export class SnapshotBuffer {
         return interpolateSnapshots(from, to, (targetServerTime - from.serverTime) / duration);
       }
     }
-    return extrapolateSnapshot(latest, targetServerTime - latest.serverTime);
+    return extrapolateSnapshot(latest, this.snapshots.at(-2), targetServerTime - latest.serverTime);
+  }
+
+  /** R3F supplies the same elapsed time to every consumer in one Canvas frame.
+   * Keep camera, vehicles and effects on one sample, including its allocations.
+   */
+  sampleFrame(frame: number) {
+    if (this.frame !== frame) {
+      this.frame = frame;
+      this.frameSnapshot = this.sample();
+    }
+    return this.frameSnapshot;
   }
 
   latest() {
@@ -134,5 +177,7 @@ export class SnapshotBuffer {
   clear() {
     this.snapshots = [];
     this.clockOffsetMs = null;
+    this.frame = null;
+    this.frameSnapshot = null;
   }
 }

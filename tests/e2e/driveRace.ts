@@ -1,3 +1,4 @@
+import { STUNT_CONFIG } from "../../src/game/core/stunts/stuntSystem";
 import type { Page } from "@playwright/test";
 import { getTrackData } from "../../src/game/track/trackData";
 import type { TrackId } from "../../src/game/track/trackCatalog";
@@ -6,7 +7,7 @@ import { TEST_SNAPSHOT_EVENT } from "../../src/game/network/snapshotDiagnostics"
 
 export async function driveRace(page: Page, nickname: string, mode: "touch" | "keyboard", durationMs: number, lane = 0, useItems = true, trackId: TrackId = "meadow", collectItems = useItems) {
   const track = getTrackData(trackId);
-  return page.evaluate(({ route, boxes, eventName, nickname, mode, durationMs, lane, useItems, collectItems }) => new Promise<{
+  return page.evaluate(({ route, boxes, eventName, nickname, mode, durationMs, lane, useItems, collectItems, airSteering }) => new Promise<{
     usedItem: boolean; status: string; laps: number; maxSnapshotGapMs: number; impacts: number; kartSpins: number; usedKinds: string[]; seenProjectiles: string[];
   }>((resolve) => {
     const usedKinds = new Set<string>(), seenProjectiles = new Set<string>();
@@ -37,7 +38,8 @@ export async function driveRace(page: Page, nickname: string, mode: "touch" | "k
       window.removeEventListener("blur", calibrate);
       window.removeEventListener("kart-race-test-stop-drive", finish);
       for (const code of [...keys]) key(code, false);
-      pedal("throttle", false); pedal("brake", false);
+      pedal("brake", false);
+      if (mode === "touch") window.dispatchEvent(new Event("blur"));
       resolve({ usedItem, status, laps, maxSnapshotGapMs: Math.round(maxSnapshotGapMs), impacts, kartSpins, usedKinds: [...usedKinds], seenProjectiles: [...seenProjectiles] });
     };
     const receive = (event: Event) => {
@@ -73,7 +75,7 @@ export async function driveRace(page: Page, nickname: string, mode: "touch" | "k
           if ((snapshot.items.boxes.find((state) => state.id === box.id)?.remaining ?? 1) > 0) continue;
           const bx = box.position[0] - x, bz = box.position[1] - z;
           const forward = bx * current.tangent[0] + bz * current.tangent[1];
-          if (forward < -1 || forward > 16) continue;
+          if (forward < -1 || forward > 28) continue;
           const normalX = Math.cos(box.yaw), normalZ = -Math.sin(box.yaw);
           const row = route.reduce((best, sample) =>
             Math.hypot(sample.position[0] - box.position[0], sample.position[1] - box.position[1]) <
@@ -96,13 +98,12 @@ export async function driveRace(page: Page, nickname: string, mode: "touch" | "k
       const difference = Math.atan2(-dx, -dz) - player.yaw;
       const error = Math.atan2(Math.sin(difference), Math.cos(difference));
       const speed = Math.max(4, Math.abs(player.speed));
-      const turnRate = 1.95 * Math.min(1, speed / 9);
+      const turnRate = 1.95 * Math.min(1, speed / 9) * (player.stuntProgress > 0 ? airSteering : 1);
       const steer = Math.max(-1, Math.min(1, Math.abs(error) > 1 ? -Math.sign(error)
         : -2 * speed * Math.sin(error) / (Math.max(1, Math.hypot(dx, dz)) * turnRate)));
       const targetSpeed = Math.abs(error) > 0.9 ? 4 : Math.abs(error) > 0.45 ? 9 : 14;
       if (mode === "touch") {
         window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { beta: 0, gamma: steer * 28 }));
-        pedal("throttle", player.speed <= targetSpeed);
         pedal("brake", player.speed > targetSpeed + 1);
       } else {
         // Pulse digital steering to approximate a driver's short corrective taps.
@@ -121,6 +122,7 @@ export async function driveRace(page: Page, nickname: string, mode: "touch" | "k
     window.addEventListener("kart-race-test-stop-drive", finish);
     window.addEventListener(eventName, receive);
     window.addEventListener("blur", calibrate);
+    if (mode === "touch") window.dispatchEvent(new Event("focus"));
     calibrate();
-  }), { route: track.race.RACE_ROUTE_SAMPLES, boxes: track.items.ITEM_BOXES, eventName: TEST_SNAPSHOT_EVENT, nickname, mode, durationMs, lane, useItems, collectItems });
+  }), { route: track.race.RACE_ROUTE_SAMPLES, boxes: track.items.ITEM_BOXES, eventName: TEST_SNAPSHOT_EVENT, nickname, mode, durationMs, lane, useItems, collectItems, airSteering: STUNT_CONFIG.airSteering });
 }

@@ -1,3 +1,4 @@
+import type { StuntState } from "../../src/game/core/stunts/stuntSystem";
 import type { RaceState } from "../../src/game/core/race/raceTypes";
 import type { KartSimulationState } from "../../src/game/core/kart/kartTypes";
 import type {
@@ -14,6 +15,7 @@ export type ServerPlayerState = {
   connection: ParticipantConnection;
   status: PlayerRaceStatus;
   kart: KartSimulationState;
+  stunt: StuntState;
   race: RaceState;
   lateralSpeed: number;
   wallReboundRemaining: number;

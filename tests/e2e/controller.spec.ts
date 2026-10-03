@@ -41,13 +41,17 @@ test("phone picks up and uses an authoritative item without steering and fits bo
   const pickedItem = await telemetry.getAttribute("data-item");
   const item = ITEM_KINDS.find((kind) => kind === pickedItem);
   if (!item) throw new Error(`Unexpected item: ${pickedItem}`);
-  await expect(driver.page.getByTestId("use-item")).toContainText(ITEM_LABELS[item]);
+  await expect(driver.page.getByTestId("use-item")).toHaveAttribute("aria-description", ITEM_LABELS[item]);
   for (const viewport of [{ width: 844, height: 390 }, { width: 390, height: 844 }]) {
     await driver.page.setViewportSize(viewport);
     await expect(driver.page.getByTestId("use-item")).toBeInViewport({ ratio: 1 });
-    await expect(driver.page.getByRole("button", { name: "加速", exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(driver.page.getByRole("button", { name: "漂移", exact: true })).toBeInViewport({ ratio: 1 });
     const itemBox = await driver.page.getByTestId("use-item").boundingBox();
     const leftBox = await driver.page.getByRole("button", { name: "左轉" }).boundingBox();
+    const quality = await driver.page.locator(".player-game .render-settings").boundingBox();
+    expect(itemBox && quality && (itemBox.x + itemBox.width <= quality.x || quality.x + quality.width <= itemBox.x ||
+      itemBox.y + itemBox.height <= quality.y || quality.y + quality.height <= itemBox.y)).toBe(true);
+    expect(await driver.page.getByTestId("controller-item-panel").textContent()).toBe("");
     expect(itemBox && leftBox && itemBox.y + itemBox.height + 8 <= leftBox.y).toBe(true);
     await driver.page.screenshot({ path: `/tmp/phase5-controller-${viewport.width}.png` });
   }
@@ -77,7 +81,7 @@ test("phone picks up and uses an authoritative item without steering and fits bo
   await other.context.close();
 });
 
-async function createRoom(hostPage: Page) {
+async function createRoom(hostPage: Page, track?: "harbor") {
   await hostPage.goto("/");
   await hostPage.getByRole("link", { name: "建立多人卡丁車賽事" }).click();
   await expect(hostPage.getByText("建立多人賽事房間，邀請 2～4 位玩家加入並準備。")).toBeVisible();
@@ -87,6 +91,7 @@ async function createRoom(hostPage: Page) {
   // verification for the dedicated rendering tests, not the input feedback loop.
   await hostPage.getByRole("combobox", { name: "畫質" }).selectOption("low");
   await hostPage.evaluate(() => history.replaceState(null, "", "?e2e=1"));
+  if (track === "harbor") await hostPage.getByRole("button", { name: /霓虹港都/ }).click();
   await hostPage.getByLabel("房主直接參賽").uncheck();
   await hostPage.getByRole("button", { name: "建立多人賽事房間" }).click();
   const roomCode = hostPage.getByTestId("room-code");
@@ -124,10 +129,14 @@ async function joinPhone(
 }
 
 async function setControl(page: Page, name: "加速" | "左轉" | "右轉" | "漂移", pressed: boolean) {
+  if (name === "加速") {
+    await page.evaluate(active => window.dispatchEvent(new Event(active ? "focus" : "blur")), pressed);
+    return;
+  }
   await page.getByRole("button", { name }).dispatchEvent(pressed ? "pointerdown" : "pointerup", {
     button: 0,
     isPrimary: true,
-    pointerId: name === "加速" ? 40 : name === "左轉" ? 41 : name === "右轉" ? 42 : 43,
+    pointerId: name === "左轉" ? 41 : name === "右轉" ? 42 : 43,
     pointerType: "touch",
   });
 }
@@ -207,7 +216,7 @@ for (const playerCount of [2, 3, 4]) {
 test("multiplayer drift renders bounded smoke and sparks and releases turbo", async ({ browser, page: hostPage }) => {
   test.setTimeout(60_000);
   const hostErrors = monitorBrowserErrors(hostPage);
-  const roomId = await createRoom(hostPage);
+  const roomId = await createRoom(hostPage, "harbor");
   const driver = await joinPhone(browser, roomId, "Drifter", 0);
   const observer = await joinPhone(browser, roomId, "Observer", 1);
   await driver.page.getByRole("button", { name: "準備完成" }).click();
@@ -221,39 +230,55 @@ test("multiplayer drift renders bounded smoke and sparks and releases turbo", as
   });
   await driver.page.getByRole("button", { name: "啟用傾斜" }).click();
   await driver.page.evaluate(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { beta: 0, gamma: 0 })));
-  const observed = await driver.page.evaluate(() => new Promise<{ drift: number; turbo: number }>((resolve) => {
-    let drifting = false, drift = 0, turbo = 0;
+  const observed = await driver.page.evaluate(() => new Promise<{ drift: number; turbo: number; maxSteer: number }>((resolve) => {
+    let drifting = false, drift = 0, turbo = 0, maxSteer = 0;
+    const tilt = (steer: number) => {
+      const angle = ((window.screen.orientation?.angle ?? 0) + 360) % 360;
+      window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", {
+        beta: angle === 90 ? steer * 28 : angle === 270 ? -steer * 28 : 0,
+        gamma: angle === 0 ? steer * 28 : angle === 180 ? -steer * 28 : 0,
+      }));
+    };
+    tilt(0);
     const deadline = performance.now() + 8_000;
     const press = (control: string, pressed: boolean, pointerId: number) => {
       document.querySelector(`[data-control="${control}"]`)?.dispatchEvent(new PointerEvent(pressed ? "pointerdown" : "pointerup", {
         bubbles: true, pointerId, pointerType: "touch",
       }));
     };
-    press("throttle", true, 40);
+    window.dispatchEvent(new Event("focus"));
     const timer = window.setInterval(() => {
       const data = document.querySelector<HTMLElement>('[data-testid="mobile-controller"]')?.dataset;
       if (!data) return;
+      maxSteer = Math.max(maxSteer, Math.abs(Number(data.steer)));
       if (!drifting && Number(data.speed) > 8) {
-        window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { beta: 0, gamma: 5.6 }));
+        tilt(0);
         press("drift", true, 43);
         drifting = true;
       }
+      // Emulate a continuous sensor stream. Chromium can emit one native null
+      // sample after permission, which must not replace the entire test drive.
+      if (drifting && drift === 0) tilt(.2);
       drift = Math.max(drift, Number(data.driftTier) || 0);
       if (drift > 0) {
         press("drift", false, 43);
-        window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { beta: 0, gamma: 0 }));
+        tilt(0);
       }
-      turbo = Math.max(turbo, Number(data.turboTier) || 0);
-      if (turbo > 0 || performance.now() >= deadline) {
+      // Only observe turbo after the charged drift has actually been released;
+      // the tier-two launch effect must not satisfy this assertion.
+      if (drift > 0 && Number(data.driftTier) === 0) turbo = Number(data.turboTier) || 0;
+      if ((drift > 0 && turbo > 0) || performance.now() >= deadline) {
         window.clearInterval(timer);
-        press("throttle", false, 40);
+        window.dispatchEvent(new Event("blur"));
         press("drift", false, 43);
-        resolve({ drift, turbo });
+        resolve({ drift, turbo, maxSteer });
       }
     }, 30);
   }));
+  console.log("Tilt drift sample:", observed);
   expect(observed.drift).toBeGreaterThan(0);
-  expect(observed.turbo).toBeGreaterThan(0);
+  expect(observed.turbo).toBe(observed.drift);
+  expect(observed.maxSteer).toBeGreaterThanOrEqual(.18);
   await expect(player).toHaveAttribute("data-drifting", "false");
   await hostPage.screenshot({ path: "/tmp/phase5-multiplayer-turbo.png" });
   expect(hostErrors).toEqual([]);
@@ -319,8 +344,13 @@ test("four phones complete the authoritative lobby-to-results flow", async ({
     { timeout: 5_000 },
   ).toBe("racing");
 
+  await Promise.all(joined.map(({ page }) => setControl(page, "加速", false)));
   const first = hostPage.getByTestId("multiplayer-runtime").locator("span", { hasText: "Driver 1" });
   const second = hostPage.getByTestId("multiplayer-runtime").locator("span", { hasText: "Driver 2" });
+  for (const car of [first, second]) {
+    await expect.poll(async () => Math.abs(Number(await car.getAttribute("data-speed"))),
+      { timeout: 10_000 }).toBeLessThan(.05);
+  }
   await setControl(joined[0].page, "加速", true);
   await expect.poll(async () => Number(await first.getAttribute("data-speed"))).toBeGreaterThan(1.5);
   expect(Math.abs(Number(await second.getAttribute("data-speed")))).toBeLessThan(0.3);
@@ -366,8 +396,10 @@ test("three phones can ready, start, drive independently, and reach results", as
   ).toBe("racing");
   await expect(hostPage.getByTestId("multiplayer-runtime").locator("span")).toHaveCount(3);
 
+  await Promise.all(joined.map(({ page }) => setControl(page, "加速", false)));
   const first = hostPage.getByTestId("multiplayer-runtime").locator("span", { hasText: "Trio 1" });
   const second = hostPage.getByTestId("multiplayer-runtime").locator("span", { hasText: "Trio 2" });
+  await expect.poll(async () => Math.abs(Number(await second.getAttribute("data-speed"))), { timeout: 10_000 }).toBeLessThan(.05);
   await setControl(joined[0].page, "加速", true);
   await expect.poll(async () => Number(await first.getAttribute("data-speed"))).toBeGreaterThan(1.5);
   expect(Math.abs(Number(await second.getAttribute("data-speed")))).toBeLessThan(0.3);
@@ -375,6 +407,7 @@ test("three phones can ready, start, drive independently, and reach results", as
 
   await Promise.all(joined.map(({ page }) => page.getByRole("button", { name: "離開" }).click()));
   await expect(hostPage.getByTestId("multiplayer-results").locator("li")).toHaveCount(3);
+  await hostPage.getByRole("button", { name: "顯示 QR Code" }).click();
   await hostPage.getByRole("button", { name: "關閉房間" }).click();
   await Promise.all(joined.map(({ context }) => context.close()));
 });
@@ -464,6 +497,16 @@ test("two separated players stay visible and throttle produces prompt visual mot
   }));
   await expect(hostPage.getByRole("button", { name: "顯示 QR Code" })).toBeVisible();
   expect(await countdown).toBeLessThan(4_500);
+  await setControl(fast.page, "加速", false);
+  await setControl(slow.page, "加速", false);
+  // GO now launches every kart automatically. Wait for that motion to stop so
+  // launch/coasting and camera framing cannot masquerade as input response.
+  const racers = hostPage.getByTestId("multiplayer-runtime").locator("span");
+  for (const name of ["Fast", "Slow"]) {
+    await expect.poll(async () => Math.abs(Number(await racers.filter({ hasText: name }).getAttribute("data-speed"))),
+      { timeout: 10_000 }).toBeLessThan(.05);
+  }
+  await hostPage.waitForTimeout(500);
   // Measure rendered nameplates, not the throttled React telemetry or speed alone.
   const motion = hostPage.evaluate(() => new Promise<number>((resolve) => {
     const labels = [...document.querySelectorAll(".player-nameplate")];
@@ -483,15 +526,13 @@ test("two separated players stay visible and throttle produces prompt visual mot
   }));
   const inputAt = await fast.page.evaluate(() => {
     const started = Date.now();
-    document.querySelector('[data-control="throttle"]')?.dispatchEvent(new PointerEvent("pointerdown", {
-      bubbles: true, pointerId: 40, pointerType: "touch",
-    }));
+    window.dispatchEvent(new Event("focus"));
     return started;
   });
   const visualLatency = (await motion) - inputAt;
   console.log(`Two-player visual input response: ${Math.round(visualLatency)} ms`);
+  expect(visualLatency).toBeGreaterThanOrEqual(0);
   expect(visualLatency).toBeLessThan(350);
-  const racers = hostPage.getByTestId("multiplayer-runtime").locator("span");
   await expect.poll(async () => {
     const coordinates = await racers.evaluateAll((elements) => elements.map((element) => Number(element.getAttribute("data-x"))));
     return Math.abs(coordinates[0] - coordinates[1]);

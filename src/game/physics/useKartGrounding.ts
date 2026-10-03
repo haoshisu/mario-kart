@@ -1,6 +1,7 @@
+import { applyRampSurface } from "../core/stunts/stuntSystem";
 import type { RapierRigidBody } from "@react-three/rapier";
 import { useCallback, useRef } from "react";
-import { KART_START } from "../core/kart/kartConfig";
+import { KART_CONFIG, KART_START } from "../core/kart/kartConfig";
 import { useTrack } from "../track/TrackContext";
 import { TRACK_CONFIG } from "../track/trackConfig";
 import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
@@ -13,9 +14,9 @@ export function useKartGrounding() {
   const result = useRef(createSurfaceResult());
   return useCallback((body: RapierRigidBody) => {
     const position = body.translation();
-    const surface = sampleTrackSurface(position.x, position.z, track.samples, result.current);
+    const surface = applyRampSurface(position.x, position.z, track.ramps, sampleTrackSurface(position.x, position.z, track.samples, result.current));
     const height = surface.height + KART_START.position[1];
-    if (surface.distance > TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || Math.abs(position.y - height) > 2) return null;
+    if (surface.distance > TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || (position.y - height > KART_CONFIG.grounding.snapDistance || height - position.y > 2)) return null;
     body.setTranslation({ x: position.x, y: height, z: position.z }, true);
     return surface;
   }, [track]);

@@ -1,3 +1,4 @@
+import { JumpRamps } from "./JumpRamps";
 import { sampleTrackSurface, createSurfaceResult } from "../track/trackSurface";
 import { useTrack } from "../track/TrackContext";
 import { useFrame } from "@react-three/fiber";
@@ -15,7 +16,7 @@ export function ItemWorld({ snapshotsRef }: { snapshotsRef: RefObject<SnapshotBu
   const shotsRef = useRef<(Group | null)[]>([]);
   const trapsRef = useRef<(Group | null)[]>([]);
   useFrame(({ clock }) => {
-    const snapshot = snapshotsRef.current.sample();
+    const snapshot = snapshotsRef.current.sampleFrame(clock.elapsedTime);
     for (let index = 0; index < ITEM_BOXES.length; index += 1) {
       const group = boxesRef.current[index];
       if (!group) continue;
@@ -57,6 +58,7 @@ export function ItemWorld({ snapshotsRef }: { snapshotsRef: RefObject<SnapshotBu
       </mesh>
     </group>)}
     <BoostPads />
+      <JumpRamps />
     {Array.from({ length: ITEM_CONFIG.maximumProjectiles }, (_, index) => <group key={`shot-${index}`} visible={false}
       ref={(node) => { shotsRef.current[index] = node; }}>
       <group>

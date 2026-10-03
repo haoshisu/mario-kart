@@ -30,3 +30,11 @@ it("snaps to respawns and resets heading when returning to the starting grid", (
   stepChaseCamera(state, { position: [20, 0.52, 10], yaw: -1, spinOutRemaining: 0 }, "countdown", 1 / 60);
   expect(state.motion.yaw.value).toBeCloseTo(-1);
 });
+
+it("snaps camera height on a vertical respawn instead of chasing through the road", () => {
+  const state = createChaseCamera();
+  stepChaseCamera(state, { position: [0, -6, 0], yaw: 0, spinOutRemaining: 0 }, "racing", 1 / 60);
+  stepChaseCamera(state, { position: [0, 8, 0], yaw: 0, spinOutRemaining: 0 }, "racing", 1 / 60);
+  expect(state.revision).toBe(2);
+  expect(state.position.y).toBeCloseTo(8 + CHASE_CAMERA_CONFIG.height);
+});

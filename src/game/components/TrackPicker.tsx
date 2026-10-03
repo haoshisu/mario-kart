@@ -11,7 +11,7 @@ export function TrackPicker({ value, onChange }: { value: TrackId; onChange: (id
         const path = track.samples.map((sample, index) => `${index ? "L" : "M"}${sample.position.join(",")}`).join(" ") + "Z";
         return <button key={id} type="button" aria-pressed={id === value} onClick={() => onChange(id)}
           className={styles.card} style={{ background: `linear-gradient(135deg, ${track.sky}, ${track.colors.grass})` }}>
-          <svg viewBox="-60 -21 120 75" aria-hidden="true">
+          <svg viewBox={track.bounds.viewBox} aria-hidden="true">
             <path d={path} fill="none" stroke="#12233c" strokeWidth="8" />
             <path d={path} fill="none" stroke={track.accent} strokeWidth="4" />
           </svg>

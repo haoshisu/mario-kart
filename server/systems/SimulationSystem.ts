@@ -1,3 +1,4 @@
+import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, applyRampSurface, STUNT_CONFIG } from "../../src/game/core/stunts/stuntSystem";
 import { sampleTrackSurface, roadQuaternion, createSurfaceResult } from "../../src/game/track/trackSurface";
 import { resolveWallCollision } from "../../src/game/core/collision/collisionSystem";
 import RAPIER, { type Collider, type RigidBody } from "@dimforge/rapier3d-compat";
@@ -132,6 +133,7 @@ export class SimulationSystem {
       lateralSpeed: 0,
       wallReboundRemaining: 0,
       spinOutRemaining: 0,
+      stunt: createStuntState(),
       impactRevision: 0,
       impactKind: "kart",
       collisionCooldown: 0,
@@ -181,6 +183,7 @@ export class SimulationSystem {
     // Leaving after crossing the finish line cannot revoke an authoritative result.
     if (player.status !== "finished") player.status = "dnf";
     this.items.clearPlayer(id, this.tick, this.itemRacer(player).position);
+    player.stunt = createStuntState();
     player.kart = createInitialKartState(player.kart.yaw);
     physics?.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     physics?.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
@@ -201,6 +204,7 @@ export class SimulationSystem {
       const pose = gridPose(index, this.players.size, this.track.race.FINISH_MARKER);
       const physics = this.physicsPlayers.get(id);
       player.status = "racing";
+      player.stunt = createStuntState();
       player.kart = createInitialKartState(pose.yaw);
       player.race = startRace(createInitialRaceState()).state;
       player.lateralSpeed = 0;
@@ -259,6 +263,7 @@ export class SimulationSystem {
       const player = this.players.get(event.playerId);
       const physics = this.physicsPlayers.get(event.playerId);
       if (!player || !physics) continue;
+      player.stunt = createStuntState();
       player.kart = createInitialKartState(player.kart.yaw);
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -321,6 +326,7 @@ export class SimulationSystem {
     if (!player || !physics) {
       return false;
     }
+    player.stunt = createStuntState();
     player.kart = createInitialKartState(yaw);
     player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -372,7 +378,8 @@ export class SimulationSystem {
     }
     const boost = canDrive && (item?.boostRemaining ?? 0) > 0
       ? { acceleration: ITEM_CONFIG.boostAcceleration, maximumSpeed: ITEM_CONFIG.boostMaximumSpeed } : undefined;
-    const next = stepKartSimulation(player.kart, input, FIXED_DELTA, boost).state;
+    const airInput = player.stunt.active ? { ...input, drift: false, steer: input.steer * STUNT_CONFIG.airSteering } : input;
+    const next = stepKartSimulation(player.kart, airInput, FIXED_DELTA, boost).state;
     player.kart = player.spinOutRemaining > 0
       ? { ...next, yaw: next.yaw + FIXED_DELTA * 8.5 }
       : next;
@@ -386,14 +393,16 @@ export class SimulationSystem {
 
     const forward = getKartForward(player.kart.yaw);
     const right = { x: forward.z, z: -forward.x };
-    const surface = this.constrainToRoad(physics.body);
+    const launched = stepStuntLaunch(player.stunt, position.x, position.y, position.z,
+      player.kart.yaw, player.kart.speed, this.track.ramps, canDrive, FIXED_DELTA);
+    const surface = player.stunt.active ? null : this.constrainToRoad(physics.body);
     physics.body.setRotation(surface ? roadQuaternion(player.kart.yaw, surface) : yawRotation(player.kart.yaw), true);
     const vx = forward.x * player.kart.speed + right.x * player.lateralSpeed;
     const vz = forward.z * player.kart.speed + right.z * player.lateralSpeed;
     physics.body.setLinvel(
       {
         x: vx,
-        y: surface ? vx * surface.gradientX + vz * surface.gradientZ : physics.body.linvel().y,
+        y: launched ? STUNT_CONFIG.launchSpeed : surface ? vx * surface.gradientX + vz * surface.gradientZ : physics.body.linvel().y,
         z: vz,
       },
       true,
@@ -408,9 +417,9 @@ export class SimulationSystem {
 
   private constrainToRoad(body: RigidBody) {
     const position = body.translation();
-    const surface = sampleTrackSurface(position.x, position.z, this.track.samples, this.surface);
+    const surface = applyRampSurface(position.x, position.z, this.track.ramps, sampleTrackSurface(position.x, position.z, this.track.samples, this.surface));
     const target = surface.height + KART_START.position[1];
-    if (surface.distance > TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || Math.abs(position.y - target) > 2) return null;
+    if (surface.distance > TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || (position.y - target > KART_CONFIG.grounding.snapDistance || target - position.y > 2)) return null;
     body.setTranslation({ x: position.x, y: target, z: position.z }, true);
     return surface;
   }
@@ -420,7 +429,18 @@ export class SimulationSystem {
     if (!physics) {
       return;
     }
-    this.constrainToRoad(physics.body);
+    const point = physics.body.translation();
+    if (stepStuntLaunch(player.stunt, point.x, point.y, point.z, player.kart.yaw,
+      player.kart.speed, this.track.ramps, this.phase === "racing" && player.status === "racing" &&
+      player.connection === "connected" && player.spinOutRemaining === 0, 0)) {
+      const velocity = physics.body.linvel();
+      physics.body.setLinvel({ x: velocity.x, y: STUNT_CONFIG.launchSpeed, z: velocity.z }, true);
+    }
+    const road = sampleTrackSurface(point.x, point.z, this.track.samples, this.surface);
+    if (finishStunt(player.stunt, point.y - road.height - KART_START.position[1], physics.body.linvel().y, road.distance)) {
+      player.kart = applyStuntBoost(player.kart);
+    }
+    if (!player.stunt.active) this.constrainToRoad(physics.body);
     const velocity = physics.body.linvel();
     const forward = getKartForward(player.kart.yaw);
     player.kart = {
@@ -453,6 +473,7 @@ export class SimulationSystem {
     if (result.state.phase === "FINISHED") {
       player.status = "finished";
       this.items.clearPlayer(player.id, this.tick, [position.x, position.z]);
+      player.stunt = createStuntState();
       player.kart = createInitialKartState(player.kart.yaw);
       physics.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       physics.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
@@ -464,6 +485,7 @@ export class SimulationSystem {
       const point: Point2 = [pose.position[0], pose.position[2]];
       this.items.clearPlayer(player.id, this.tick, point, true);
       this.previousPositions.set(player.id, point);
+      player.stunt = createStuntState();
       player.kart = createInitialKartState(pose.yaw);
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -579,6 +601,7 @@ export class SimulationSystem {
       for (const player of this.players.values()) {
         if (player.status !== "racing") continue;
         player.status = "dnf";
+        player.stunt = createStuntState();
         player.kart = createInitialKartState(player.kart.yaw);
         player.spinOutRemaining = 0;
         this.input.neutralize(player.id);
@@ -616,6 +639,7 @@ export class SimulationSystem {
       driftTier: player.kart.drift.chargeTier,
       turboTier: player.kart.drift.turboTier,
       spinOutRemaining: player.spinOutRemaining,
+      stuntProgress: stuntProgress(player.stunt),
       impactRevision: player.impactRevision,
       impactKind: player.impactKind,
       completedLaps: player.race.completedLaps,
@@ -632,6 +656,7 @@ export class SimulationSystem {
     [...this.players.values()].forEach((player, index) => {
       const pose = gridPose(index, this.players.size, this.track.race.FINISH_MARKER);
       const physics = this.physicsPlayers.get(player.id);
+      player.stunt = createStuntState();
       player.kart = createInitialKartState(pose.yaw);
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -660,8 +685,8 @@ export class SimulationSystem {
         .setFriction(0),
       ground,
     );
-    // Cars are constrained to a fixed height here. Raised curb faces would stop
-    // them like walls; curbs remain visual, while the outer guards stay solid.
+    // Arcade adhesion follows the road and ramp slopes. Solid vertical curb
+    // faces would snag the karts; outer guards provide the collision boundary.
 
     for (const segment of this.track.geometry.GUARD_RAIL_SEGMENTS) {
       const body = this.world.createRigidBody(

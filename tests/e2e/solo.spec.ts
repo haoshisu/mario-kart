@@ -54,7 +54,7 @@ for (const mode of ["keyboard", "phone"] as const) {
       await phone.evaluate(() => Object.defineProperty(window.DeviceOrientationEvent, "requestPermission", { configurable: true, value: async () => "granted" }));
       await phone.getByRole("button", { name: "啟用傾斜" }).click();
       await phone.evaluate(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { beta: 0, gamma: 0 })));
-      await phone.getByRole("button", { name: "加速", exact: true }).dispatchEvent("pointerdown", { pointerId: 40, pointerType: "touch", button: 0 });
+      await expect(phone.getByTestId("mobile-controller")).toHaveAttribute("data-throttle", "1");
     } else {
       await page.keyboard.down("KeyW");
       await expect.poll(async () => Number(await player.getAttribute("data-speed"))).toBeGreaterThan(2);

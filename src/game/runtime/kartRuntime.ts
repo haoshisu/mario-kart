@@ -12,6 +12,7 @@ export type KartRuntimeState = {
   yaw: number;
   speed: number;
   steer: number;
+  stuntProgress: number;
   drifting: boolean;
   driftCharge: number;
   driftTier: DriftTier;
@@ -25,6 +26,7 @@ export type KartTelemetry = Readonly<{
   signedSpeed: number;
   speedKph: number;
   height: number;
+  stuntProgress: number;
   position: readonly [x: number, z: number];
   yaw: number;
   drifting: boolean;
@@ -49,6 +51,7 @@ export function createKartRuntimeState(): KartRuntimeState {
     yaw: KART_START.yaw,
     speed: 0,
     steer: 0,
+    stuntProgress: 0,
     drifting: false,
     driftCharge: 0,
     driftTier: 0,
@@ -63,6 +66,7 @@ export const INITIAL_KART_TELEMETRY: KartTelemetry = {
   signedSpeed: 0,
   speedKph: 0,
   height: KART_START.position[1],
+  stuntProgress: 0,
   position: [KART_START.position[0], KART_START.position[2]],
   yaw: KART_START.yaw,
   drifting: false,

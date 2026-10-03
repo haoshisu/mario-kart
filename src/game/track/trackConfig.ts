@@ -33,7 +33,7 @@ export const TRACK_CONFIG = {
  },
  ground: {
   width: 150,
-  depth: 130,
+  depth: 190,
   thickness: 0.4,
  },
 } as const satisfies TrackConfig

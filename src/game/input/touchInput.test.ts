@@ -38,5 +38,16 @@ describe("TouchInputController", () => {
       composeControllerInput({ throttle: 1, brake: 0, steer: -1, drift: false }, 0.6, true),
     ).toEqual({ throttle: 1, brake: 0, steer: -1, drift: false });
   });
+  it("auto-accelerates without pedals and lets braking override it", () => {
+    const controller = new TouchInputController();
+    expect(composeControllerInput(controller.read(), 0, false, true).throttle).toBe(1);
+    controller.press(1, "left"); controller.press(2, "drift");
+    expect(composeControllerInput(controller.read(), 0, false, true)).toEqual({ throttle: 1, brake: 0, steer: -1, drift: true });
+    controller.press(3, "brake");
+    expect(composeControllerInput(controller.read(), 0, false, true)).toMatchObject({ throttle: 0, brake: 1 });
+    controller.release(3);
+    expect(composeControllerInput(controller.read(), 0, false, true).throttle).toBe(1);
+  });
+
 });
 

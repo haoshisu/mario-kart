@@ -1,3 +1,4 @@
+import type { TrackId } from "../../track/trackCatalog";
 import { surfaceOffsetHeight, sampleTrackSurface, roadOrientation } from "../../track/trackSurface";
 import { RACE_ROUTE_SAMPLES, type RaceRouteSample } from "../race/raceTrack";
 
@@ -44,7 +45,7 @@ export const ITEM_CONFIG = {
   finishGraceSeconds: 30,
 } as const;
 
-export function createItemPlacements(route: readonly RaceRouteSample[]) {
+export function createItemPlacements(route: readonly RaceRouteSample[], trackId: TrackId = "meadow") {
   function routePoint(fraction: number, lane: number) {
     const sample = route[Math.round(fraction * route.length) % route.length];
     const position = [sample.position[0] + sample.normal[0] * lane, sample.position[1] + sample.normal[1] * lane] as const;
@@ -64,7 +65,11 @@ export function createItemPlacements(route: readonly RaceRouteSample[]) {
     })));
   // Optional off-centre boosts reward lining up early without forcing every kart
   // onto the same racing line. The S-bend exit requires a deliberate lane change.
-  const BOOST_PADS = [[0.13, -2.4], [0.29, 2.4], [0.46, -2.4], [0.58, 2.4], [0.81, -2.4], [0.94, -2.4]].map(([fraction, lane], index) => ({
+  const fractions: Record<TrackId, readonly number[]> = {
+    meadow: [.13, .29, .46, .58, .81, .94], harbor: [.1, .25, .48, .6, .74, .9],
+    canyon: [.09, .22, .39, .61, .77, .93], aurora: [.08, .23, .38, .54, .69, .88],
+  };
+  const BOOST_PADS = fractions[trackId].map((fraction, index) => [fraction, index % 2 ? 2.4 : -2.4]).map(([fraction, lane], index) => ({
     id: `pad-${index}`, ...routePoint(fraction, lane),
   }));
 

@@ -19,3 +19,5 @@
   .map > span { font-size: 10px; }
   .map small { display: none; }
 }
+
+:global(.player-screen) .map { bottom: 126px; }

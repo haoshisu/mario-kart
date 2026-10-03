@@ -86,6 +86,7 @@ export type PlayerSnapshot = Readonly<{
   driftTier: DriftTier;
   turboTier: DriftTier;
   spinOutRemaining: number;
+  stuntProgress: number;
   impactRevision: number;
   impactKind: ImpactKind;
   completedLaps: number;

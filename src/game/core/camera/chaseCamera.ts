@@ -24,7 +24,7 @@ export function stepChaseCamera(
 ) {
   const [x, y, z] = player.position;
   const reset = !state.motion.initialized ||
-    Math.hypot(x - state.kartPosition.x, z - state.kartPosition.z) > NETWORK_CONFIG.teleportDistance ||
+    Math.hypot(x - state.kartPosition.x, y - state.kartPosition.y, z - state.kartPosition.z) > NETWORK_CONFIG.teleportDistance ||
     (phase !== state.phase && (phase === "countdown" || phase === "lobby"));
   if (reset) state.revision += 1;
   // Keep the view steady while the kart spins; recover heading smoothly afterwards.

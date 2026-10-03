@@ -46,9 +46,11 @@ export function composeControllerInput(
   touchInput: KartInput,
   tiltSteer: number,
   tiltEnabled: boolean,
+  autoAccelerate = false,
 ): KartInput {
   return {
     ...touchInput,
+    throttle: touchInput.brake > 0 ? 0 : autoAccelerate ? 1 : touchInput.throttle,
     steer: touchInput.steer !== 0 || !tiltEnabled ? touchInput.steer : tiltSteer,
   };
 }

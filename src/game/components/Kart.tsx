@@ -44,7 +44,8 @@ export function Kart({ runtimeRef }: KartProps) {
     const targetLean = runtime.steer * speedWeight *
       (runtime.drifting ? -KART_CONFIG.visual.driftLean : -KART_CONFIG.visual.normalLean);
     const smoothing = 1 - Math.exp(-10 * Math.min(delta, 0.1));
-    visual.rotation.z += (targetLean - visual.rotation.z) * smoothing;
+    visual.rotation.z = runtime.stuntProgress > 0 ? Math.PI * 2 * runtime.stuntProgress :
+      Math.atan2(Math.sin(visual.rotation.z), Math.cos(visual.rotation.z)) * (1 - smoothing) + targetLean * smoothing;
     visual.rotation.x = Math.sin(clock.elapsedTime * 42) * runtime.collisionShake * 0.045;
     visual.position.y = Math.sin(clock.elapsedTime * 50) * runtime.collisionShake * 0.025;
   }, -1);
@@ -54,8 +55,8 @@ export function Kart({ runtimeRef }: KartProps) {
       <group scale={KART_CONFIG.modelScale} position={[0, -0.43 * (1 - KART_CONFIG.modelScale), 0]}>
       <group ref={visualRef}>
         <KartBodyModel color="#f2b52e" motionRef={runtimeRef} />
-      </group>
       {KART_WHEEL_POSITIONS.map((position, index) => <KartWheelModel key={index} position={position} motionRef={runtimeRef} />)}
+      </group>
 
       <DriftEffects runtimeRef={runtimeRef} />
       </group>

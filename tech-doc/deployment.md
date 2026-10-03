@@ -3,7 +3,7 @@
 ## 已核准的部署範圍
 
 - 網站：`https://mario-kart.sshnick.com`，Vercel Hobby；DNS 管理商 Cloudflare。
-- 權威遊戲伺服器：Render Free / Singapore，一個 Node.js process，同時最多一房（Host＋最多四位 Controller）；CPU 不占 WebSocket 席位。
+- 權威遊戲伺服器：Render Free / Singapore，一個 Node.js process，同時最多一房、四位參賽者（包含參賽 Host）；CPU 不占 WebSocket 席位。
 - Render 沿用平台 HTTPS 網址，SDK 以 WSS 連線；不新增後端自訂網域、不變更 `sshnick.com` 主站。
 - 使用者接受免費主機冷啟動；不購買主機、不自動升級、不增加 Redis／資料庫／帳號系統。
 - 此方案是朋友試玩部署，不能承諾免費平台的 production SLA。正式上線、Windows／iPhone 四人與效能門檻仍須實際驗收，不因接受冷啟動而自動通過。
@@ -32,7 +32,7 @@ blender --background --factory-startup --python scripts/build-models.py
 5. Vercel 匯入 Next.js 專案，選 Hobby，build 前加入 `NEXT_PUBLIC_COLYSEUS_URL=https://實際服務名稱.onrender.com`。這是公開端點，不是秘密；變更後需重新 build。
 6. Vercel 加入 `mario-kart.sshnick.com`，Cloudflare 僅新增／調整名稱為 `mario-kart` 的 DNS，值以 Vercel 當下提供為準；先用 DNS only 驗證憑證。勿覆寫 apex、MX、其他子網域或變更 nameserver。
 7. 確認正式 HTTPS 憑證、手機 QR 指向正式網域、WebSocket 是 WSS。預覽網址預設不加入允許來源；若需驗收特定 preview，明確新增該精確 origin，勿放寬為 wildcard。
-8. 僅在 CI 通過且無進行中房間時手動部署前後端。互不相容的協定升級需同時更新；目前協定版本仍為 4。
+8. 僅在 CI 通過且無進行中房間時手動部署前後端。互不相容的協定升級需同時更新；目前協定版本為 10，以 `src/game/network/networkConfig.ts` 為準。
 
 ## 冷啟動與故障
 

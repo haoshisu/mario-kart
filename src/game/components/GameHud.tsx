@@ -56,6 +56,7 @@ export function GameHud({
         data-testid="kart-runtime"
         data-speed={telemetry.signedSpeed}
         data-y={telemetry.height}
+        data-stunt-progress={telemetry.stuntProgress}
         data-x={telemetry.position[0]}
         data-yaw={telemetry.yaw}
         data-z={telemetry.position[1]}

@@ -1,3 +1,4 @@
+import { useTrack } from "../track/TrackContext";
 import { useFrame } from "@react-three/fiber";
 import { useRef, type RefObject } from "react";
 import { PerspectiveCamera, Vector3 } from "three";
@@ -8,11 +9,14 @@ type SharedCameraProps = { snapshotsRef: RefObject<SnapshotBuffer> };
 const VIEW_DIRECTION = new Vector3(0.54, 0.85, 0.62).normalize();
 
 export function SharedCamera({ snapshotsRef }: SharedCameraProps) {
+  const track = useTrack();
+  const { centerX, centerZ, width, depth } = track.bounds;
+  const overviewDistance = Math.max(145, width * 1.5, depth * 1.5);
   const frameRef = useRef({ x: 0, z: 0, distance: 0, initialized: false });
   const targetRef = useRef(new Vector3());
 
-  useFrame(({ camera }, delta) => {
-    const snapshot = snapshotsRef.current.sample();
+  useFrame(({ camera, clock }, delta) => {
+    const snapshot = snapshotsRef.current.sampleFrame(clock.elapsedTime);
     if (!(camera instanceof PerspectiveCamera)) return;
     if (!snapshot || snapshot.players.length === 0) {
       // Re-enter the course overview after leaving a race, including on phones.
@@ -21,8 +25,8 @@ export function SharedCamera({ snapshotsRef }: SharedCameraProps) {
         camera.far = 700;
         camera.updateProjectionMatrix();
       }
-      targetRef.current.set(0, 0, 12);
-      camera.position.copy(VIEW_DIRECTION).multiplyScalar(145 / Math.min(1, camera.aspect)).add(targetRef.current);
+      targetRef.current.set(centerX, 0, centerZ);
+      camera.position.copy(VIEW_DIRECTION).multiplyScalar(overviewDistance / Math.min(1, camera.aspect)).add(targetRef.current);
       camera.lookAt(targetRef.current);
       frameRef.current.initialized = false;
       return;

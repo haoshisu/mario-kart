@@ -1,3 +1,4 @@
+import { createStuntState } from "../../src/game/core/stunts/stuntSystem";
 import { describe, expect, it } from "vitest";
 import { createInitialKartState } from "../../src/game/core/kart/kartPhysics";
 import { createInitialRaceState } from "../../src/game/core/race/raceEngine";
@@ -12,7 +13,7 @@ function racer(id: string, status: ServerPlayerState["status"], score: number, f
     color: "coral",
     connection: "connected",
     status,
-    kart: createInitialKartState(),
+    stunt: createStuntState(), kart: createInitialKartState(),
     race: {
       ...race,
       finishTime,

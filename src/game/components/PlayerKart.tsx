@@ -1,3 +1,4 @@
+import { applyRampSurface } from "../core/stunts/stuntSystem";
 import { useTrack } from "../track/TrackContext";
 import { sampleTrackSurface, roadOrientation, createSurfaceResult } from "../track/trackSurface";
 import { Html } from "@react-three/drei";
@@ -30,21 +31,22 @@ export function PlayerKart({ playerId, nickname, color, snapshotsRef }: PlayerKa
   useFrame(({ clock }, delta) => {
     const group = groupRef.current;
     const visual = visualRef.current;
-    const player = snapshotsRef.current?.sample()?.players.find((entry) => entry.id === playerId);
+    const player = snapshotsRef.current?.sampleFrame(clock.elapsedTime)?.players.find((entry) => entry.id === playerId);
     if (!group || !visual || !player) {
       return;
     }
     group.position.set(...player.position);
-    sampleTrackSurface(player.position[0], player.position[2], track.samples, surface.current);
+    applyRampSurface(player.position[0], player.position[2], track.ramps, sampleTrackSurface(player.position[0], player.position[2], track.samples, surface.current));
     const { pitch, roll } = roadOrientation(player.yaw, surface.current);
-    group.rotation.set(pitch, player.yaw, roll, "YXZ");
+    group.rotation.set(player.stuntProgress > 0 ? 0 : pitch, player.yaw, player.stuntProgress > 0 ? 0 : roll, "YXZ");
     motionRef.current.speed = player.speed;
     motionRef.current.steer = player.steer;
     motionRef.current.finished = player.status === "finished";
     const targetLean = -player.steer * Math.min(1, Math.abs(player.speed) / 9) *
       (player.drifting ? 0.09 : 0.025);
-    visual.rotation.z += (targetLean - visual.rotation.z) *
-      (1 - Math.exp(-10 * Math.min(delta, 0.1)));
+    visual.rotation.z = player.stuntProgress > 0 ? Math.PI * 2 * player.stuntProgress :
+      Math.atan2(Math.sin(visual.rotation.z), Math.cos(visual.rotation.z)) * Math.exp(-10 * Math.min(delta, .1)) +
+      targetLean * (1 - Math.exp(-10 * Math.min(delta, .1)));
     if (player.impactRevision !== lastImpactRef.current) {
       lastImpactRef.current = player.impactRevision;
       shakeRef.current = 1;
@@ -58,8 +60,8 @@ export function PlayerKart({ playerId, nickname, color, snapshotsRef }: PlayerKa
       <group scale={KART_CONFIG.modelScale} position={[0, -0.43 * (1 - KART_CONFIG.modelScale), 0]}>
       <group ref={visualRef}>
         <KartBodyModel color={PLAYER_COLOR_VALUES[color]} motionRef={motionRef} />
-      </group>
       {KART_WHEEL_POSITIONS.map((position, index) => <KartWheelModel key={index} position={position} motionRef={motionRef} />)}
+      </group>
       <MultiplayerKartEffects playerId={playerId} snapshotsRef={snapshotsRef} />
       </group>
       <Html center position={[0, 1.45, 0]} zIndexRange={[2, 1]} style={{ pointerEvents: "none" }}>

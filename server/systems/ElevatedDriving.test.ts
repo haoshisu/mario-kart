@@ -1,3 +1,4 @@
+import { applyRampSurface } from "../../src/game/core/stunts/stuntSystem";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { beforeAll, expect, it } from "vitest";
 import { SimulationSystem } from "./SimulationSystem";
@@ -5,24 +6,35 @@ import { TRACK_IDS } from "../../src/game/track/trackCatalog";
 import { sampleTrackSurface } from "../../src/game/track/trackSurface";
 
 beforeAll(async () => { await RAPIER.init(); });
-it.each(TRACK_IDS)("%s physically climbs and descends its road without vertical discontinuities", (id) => {
+it.each(TRACK_IDS)("%s physically climbs and descends its road including physical stunt jumps and rewarded landings", (id) => {
   const simulation = new SimulationSystem(42, id);
   try {
     simulation.addPlayer("driver", "Driver", "coral", 0);
     simulation.start();
     let lowest = Infinity, highest = -Infinity, uphill = false, downhill = false;
+    let jumps = 0, landings = 0, airborne = false;
     let previous = simulation.getSnapshot().players[0].position;
-    for (let tick = 0; tick < 100 * 60 && simulation.getPhase() !== "finished"; tick += 1) {
+    for (let tick = 0; tick < 150 * 60 && simulation.getPhase() !== "finished"; tick += 1) {
       simulation.step(tick * 1000 / 60);
       const player = simulation.getSnapshot().players[0];
       const [x, y, z] = player.position;
-      const surface = sampleTrackSurface(x, z, simulation.track.samples);
-      expect(y).toBeCloseTo(surface.height + .52, 3);
-      if (Math.hypot(x - previous[0], z - previous[2]) < 1) expect(Math.abs(y - previous[1])).toBeLessThan(.4);
+      const surface = applyRampSurface(x, z, simulation.track.ramps, sampleTrackSurface(x, z, simulation.track.samples));
+      if (player.stuntProgress > 0) {
+        if (!airborne) jumps++;
+        airborne = true;
+        expect(y).toBeGreaterThan(surface.height + .52);
+      } else {
+        if (airborne) { landings++; expect(player.turboTier).toBe(2); }
+        airborne = false;
+        expect(y).toBeCloseTo(surface.height + .52, 3);
+      }
+      if (Math.hypot(x - previous[0], z - previous[2]) < 1) expect(Math.abs(y - previous[1]), JSON.stringify({ tick, player, previous, ramps: simulation.track.ramps })).toBeLessThan(.4);
       if (y - previous[1] > .02) uphill = true;
       if (y - previous[1] < -.02) downhill = true;
       lowest = Math.min(lowest, y); highest = Math.max(highest, y); previous = player.position;
     }
+    expect(jumps).toBeGreaterThan(0);
+    expect(landings).toBe(jumps);
     expect(highest - lowest).toBeGreaterThan(4);
     expect(uphill && downhill).toBe(true);
     expect(simulation.getSnapshot().players[0]).toMatchObject({ status: "finished", completedLaps: 3 });

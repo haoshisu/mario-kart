@@ -55,6 +55,7 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
             data-player-id={player.id}
             data-rank={player.rank}
             data-speed={player.speed}
+            data-stunt-progress={player.stuntProgress}
             data-spinout={player.spinOutRemaining}
             data-status={player.status}
             data-x={player.position[0]}
@@ -76,7 +77,7 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
         {ordered.map((player) => (
           <li key={player.id}>
             <strong>{player.rank}</strong>
-            <span>{player.nickname}<ItemStatus item={player.item} compact /></span>
+            <span>{player.nickname}{player.stuntProgress > 0 && <small> ✦ 空中特技</small>}<ItemStatus item={player.item} compact /></span>
             <small>
               {player.status === "dnf"
                 ? "DNF"

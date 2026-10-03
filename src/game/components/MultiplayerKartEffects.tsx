@@ -18,7 +18,7 @@ export function MultiplayerKartEffects({ playerId, snapshotsRef }: {
   const lastImpact = useRef(0);
   const flashRemaining = useRef(0);
   useFrame(({ clock }, delta) => {
-    const player = snapshotsRef.current.sample()?.players.find((entry) => entry.id === playerId);
+    const player = snapshotsRef.current.sampleFrame(clock.elapsedTime)?.players.find((entry) => entry.id === playerId);
     if (!player) return;
     const time = clock.elapsedTime;
     if (smoke.current) {

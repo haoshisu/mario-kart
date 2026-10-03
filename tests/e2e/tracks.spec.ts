@@ -8,6 +8,16 @@ test("previews and drives every themed circuit, preserving the selected track on
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/game?stats=1");
   await page.getByRole("combobox", { name: "畫質" }).selectOption("low");
+  // Long and tall circuits must remain whole in the selector thumbnails.
+  const thumbnails = await page.getByRole("group", { name: "選擇賽道" }).locator("svg").evaluateAll(elements => elements.map(element => {
+    if (!(element instanceof SVGSVGElement)) return false;
+    const path = element.querySelector("path");
+    if (!path) return false;
+    const bounds = path.getBBox(), view = element.viewBox.baseVal;
+    return bounds.x >= view.x && bounds.y >= view.y &&
+      bounds.x + bounds.width <= view.x + view.width && bounds.y + bounds.height <= view.y + view.height;
+  }));
+  expect(thumbnails).toEqual([true, true, true, true]);
   for (const [id, name] of courses) {
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(page.locator(".game-canvas")).toHaveAttribute("data-track-id", id);

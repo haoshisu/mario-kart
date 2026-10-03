@@ -1,5 +1,5 @@
 import { ItemIcon } from "./ItemIcon";
-import { ITEM_LABELS, ITEM_DESCRIPTIONS } from "../core/items/itemConfig";
+import { ITEM_LABELS } from "../core/items/itemConfig";
 import type { ItemState } from "../core/items/itemTypes";
 import type { RaceSnapshot } from "../network/protocol";
 
@@ -14,13 +14,9 @@ export function ItemStatus({ item, compact = false }: { item: Readonly<ItemState
   return <span className={`item-status${compact ? " item-status--compact" : ""}`} data-item={item.held ?? "none"}>
     {!compact ? <span className="item-slots" aria-label="道具背包，最多兩格">
       {[item.held, item.reserve].map((kind, index) => <span key={index} className={`item-slot item-slot--${index === 0 ? "active" : "reserve"}`} data-slot={index + 1} data-item={kind ?? "none"} aria-label={`${index === 0 ? "前格" : "備用"}：${kind ? ITEM_LABELS[kind] : "空格"}`}>
-        <ItemIcon kind={kind} /><small>{index === 0 ? "先使用" : "下一個"}</small>
+        <ItemIcon kind={kind} />
       </span>)}
     </span> : <span className="item-icons-compact"><ItemIcon kind={item.held} /><ItemIcon kind={item.reserve} /></span>}
-    {!compact ? <span className="item-name">{item.held ? ITEM_LABELS[item.held] : "駛過發光箱補充"}</span> : null}
-    {item.held && !compact ? <small>{ITEM_DESCRIPTIONS[item.held]}</small> : null}
-    {item.cooldown > 0 ? <small>冷卻 {item.cooldown.toFixed(1)}s</small> : null}
-    <small>{itemEffectLabel(item)}</small>
   </span>;
 }
 
