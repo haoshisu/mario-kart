@@ -1,0 +1,50 @@
+[
+  {
+    "name": "chibi-dodo-v1",
+    "triangles": 11910,
+    "materials": 12,
+    "bytes": 83004
+  },
+  {
+    "name": "chibi-dodo-low-v1",
+    "triangles": 7668,
+    "materials": 12,
+    "bytes": 62876
+  },
+  {
+    "name": "chibi-lumi-v1",
+    "triangles": 11874,
+    "materials": 11,
+    "bytes": 80700
+  },
+  {
+    "name": "chibi-lumi-low-v1",
+    "triangles": 7688,
+    "materials": 11,
+    "bytes": 61216
+  },
+  {
+    "name": "chibi-lili-v1",
+    "triangles": 10273,
+    "materials": 10,
+    "bytes": 71552
+  },
+  {
+    "name": "chibi-lili-low-v1",
+    "triangles": 6492,
+    "materials": 10,
+    "bytes": 54016
+  },
+  {
+    "name": "chibi-bibo-v1",
+    "triangles": 8875,
+    "materials": 10,
+    "bytes": 64824
+  },
+  {
+    "name": "chibi-bibo-low-v1",
+    "triangles": 5360,
+    "materials": 10,
+    "bytes": 48252
+  }
+]
