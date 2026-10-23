@@ -1,12 +1,15 @@
+import { PracticeRecord } from "./PracticeRecord";
+import type { PracticeRecordView } from "../runtime/usePracticeRecord";
 import type { RaceTelemetry } from "../runtime/raceRuntime";
 import { formatRaceTime } from "./RaceHud";
 
 type FinishScreenProps = {
   race: RaceTelemetry;
+  record: PracticeRecordView;
   onRestart: () => void;
 };
 
-export function FinishScreen({ race, onRestart }: FinishScreenProps) {
+export function FinishScreen({ race, onRestart, record }: FinishScreenProps) {
   if (race.phase !== "FINISHED") {
     return null;
   }
@@ -25,6 +28,7 @@ export function FinishScreen({ race, onRestart }: FinishScreenProps) {
         ))}
         <div><dt>BEST LAP</dt><dd>{formatRaceTime(race.bestLapTime ?? 0)}</dd></div>
       </dl>
+      <PracticeRecord view={record} race={race} finished />
       <button onClick={onRestart} type="button">重新比賽</button>
     </section>
   );

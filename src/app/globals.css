@@ -1518,3 +1518,5 @@ a {
 .driving-feedback-tiers i { width: 8px; height: 20px; border-radius: 3px; background: #54616b; }
 .item-feedback-banner small { flex-shrink: 0; }
 @media (max-height: 540px) { .driving-feedback-copy span { font-size: 10px; } }
+
+.finish-screen { max-height: calc(100% - 2rem); overflow-y: auto; z-index: 6; }

@@ -1,3 +1,5 @@
+import { usePracticeRecord } from "../runtime/usePracticeRecord";
+import { PracticeRecord } from "./PracticeRecord";
 import { SpeedFlow } from "./SpeedFlow";
 import { getDriftTierConfig } from "../core/kart/kartConfig";
 import type { KartTelemetry } from "../runtime/kartRuntime";
@@ -51,6 +53,7 @@ export function GameHud({
 }: GameHudProps) {
   const track = useTrack();
   const status = getStatus(telemetry, ready);
+  const practiceRecord = usePracticeRecord(track.id, telemetry.race);
 
   return (
     <div className="kart-hud" data-testid="game-hud">
@@ -78,6 +81,7 @@ export function GameHud({
       </output>
 
       <RaceHud race={telemetry.race} />
+      {cameraMode === "drive" && telemetry.race.phase !== "FINISHED" ? <PracticeRecord view={practiceRecord} race={telemetry.race} /> : null}
 
       <div className="kart-hud__telemetry">
         <span>SPEED</span>
@@ -120,7 +124,7 @@ export function GameHud({
       </div>
 
       <Countdown cue={telemetry.race.countdownCue} />
-      <FinishScreen onRestart={onRestart} race={telemetry.race} />
+      <FinishScreen onRestart={onRestart} race={telemetry.race} record={practiceRecord} />
     </div>
   );
 }

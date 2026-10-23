@@ -1,0 +1,13 @@
+.picker { width: 100%; min-width: 0; }
+.tour { border: 1px solid #d7ff384a; border-radius: 12px; padding: .7rem; margin-bottom: .7rem; background: #203329; }
+.tour > strong { color: var(--acid); font-size: 1rem; }
+.tour p, .best p { margin: .35rem 0; font-size: .72rem; line-height: 1.5; }
+.tour small { display: block; margin-top: .5rem; font-size: .6rem; line-height: 1.5; }
+.progress { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .65rem 0; }
+.progress label { display: block; font-size: .7rem; }
+.progress b { float: right; font-variant-numeric: tabular-nums; }
+.progress progress { display: block; width: 100%; height: 6px; margin-top: .4rem; accent-color: var(--acid); }
+.tour button { width: 100%; white-space: normal; line-height: 1.5; }
+.tour .complete { color: #d7ff38; }
+.best { border-top: 1px solid #ffffff26; padding: .55rem 0; }
+.best strong { font-size: .72rem; }

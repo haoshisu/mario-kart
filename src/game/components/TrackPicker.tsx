@@ -1,8 +1,10 @@
 import { TRACK_CATALOG, TRACK_IDS, type TrackId } from "../track/trackCatalog";
 import { getTrackData } from "../track/trackData";
+import type { PracticeRecords } from "../core/race/practiceTour";
+import { formatRaceTime } from "./RaceHud";
 import styles from "./TrackPicker.module.css";
 
-export function TrackPicker({ value, onChange }: { value: TrackId; onChange: (id: TrackId) => void }) {
+export function TrackPicker({ value, onChange, records }: { value: TrackId; onChange: (id: TrackId) => void; records?: PracticeRecords }) {
   const selected = TRACK_CATALOG[value];
   return <div className={styles.picker}>
     <div className={styles.grid} role="group" aria-label="選擇賽道">
@@ -16,6 +18,7 @@ export function TrackPicker({ value, onChange }: { value: TrackId; onChange: (id
             <path d={path} fill="none" stroke={track.accent} strokeWidth="4" />
           </svg>
           <strong>{track.name}</strong><small>{track.subtitle}</small>
+          {records ? <span className={styles.record} data-testid={`track-record-${id}`}>{records[id] ? `已完成 · ${formatRaceTime(records[id].bestTotal)}` : "待挑戰"}</span> : null}
         </button>;
       })}
     </div>

@@ -8,6 +8,7 @@ import { PLAYER_COLOR_VALUES } from "../network/networkConfig";
 import type { HostRoomState } from "../network/useHostRoom";
 import type { RoomMode } from "../network/protocol";
 
+import { PracticeTrackPicker } from "./PracticeTrackPicker";
 import { TrackPicker } from "./TrackPicker";
 import { TRACK_CATALOG, type TrackId } from "../track/trackCatalog";
 
@@ -21,6 +22,7 @@ type HostRoomPanelProps = {
   onClose: () => void;
   onStart: () => void;
   practiceActive?: boolean;
+  practiceMode?: boolean;
 };
 
 function playerStatus(state: HostRoomState) {
@@ -31,7 +33,8 @@ function playerStatus(state: HostRoomState) {
   return `${state.players.length}/4 位玩家`;
 }
 
-export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrackId, onSelectTrack, practiceActive = false, characterId, onSelectCharacter }: HostRoomPanelProps) {
+export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrackId, onSelectTrack, practiceActive = false, practiceMode = false, characterId, onSelectCharacter }: HostRoomPanelProps) {
+  const Picker = practiceMode ? PracticeTrackPicker : TrackPicker;
   const [hostPlays, setHostPlays] = useState(true);
   const [panelPreference, setPanelPreference] = useState<{
     roomId: string | null; racePhase: HostRoomState["racePhase"]; collapsed: boolean; practiceActive: boolean;
@@ -56,7 +59,7 @@ export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrack
         data-testid="host-room-panel"
       >
         <span>CHOOSE YOUR CIRCUIT</span>
-        <TrackPicker value={selectedTrackId} onChange={id => { onSelectTrack(id); if (practiceActive) setCollapsed(true); }} />
+        <Picker value={selectedTrackId} onChange={id => { onSelectTrack(id); if (practiceActive) setCollapsed(true); }} />
         <CharacterPicker value={characterId} onChange={onSelectCharacter} />
         {practiceActive ? <button type="button" onClick={() => setCollapsed(true)}>返回駕駛</button> : null}
         <label><input type="checkbox" checked={hostPlays} onChange={(event) => setHostPlays(event.target.checked)} />房主直接參賽</label>

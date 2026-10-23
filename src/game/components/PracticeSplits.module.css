@@ -1,0 +1,8 @@
+.splits { border-top: 1px solid #ffffff26; margin-top: .5rem; padding-top: .3rem; font-variant-numeric: tabular-nums; }
+.splits .hint, .hint { font-size: .65rem; color: #b3c3b8; line-height: 1.5; }
+.splits [data-trend="-1"] { color: #c7ff7e; }
+.splits [data-trend="1"] { color: #ffbf9f; }
+.splits table { width: 100%; border-collapse: collapse; font-size: .7rem; }
+.splits th, .splits td { padding: .35rem .15rem; text-align: center; }
+.splits thead { color: #b3c3b8; }
+.splits tbody tr { border-top: 1px solid #ffffff12; }

@@ -9,3 +9,5 @@
 .picker .description { display: grid; gap: 3px; margin: 8px 0 10px; font-size: 11px; line-height: 1.5; }
 .description b { color: #f3dc94; }
 @media (max-height: 540px) { .grid { grid-template-columns: repeat(4, 1fr); gap: 4px; } .grid .card { min-height: 68px; padding: 5px; } .card svg { height: 28px; } .grid .card small { display: none; } .grid .card strong { color: #fff5d9; font-size: 10px; } .picker .description { display: none; } }
+
+.grid .card .record { font-size: 10px; color: #fff5d9; margin-top: 4px; letter-spacing: 0; }

@@ -152,6 +152,7 @@ export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
         playerId={hostRoom.state.playerId ?? undefined}
       />
       <HostRoomPanel
+        practiceMode={!multiplayerActive}
         characterId={characterId}
         onSelectCharacter={setCharacterId}
         selectedTrackId={selectedTrackId}
