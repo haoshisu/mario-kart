@@ -1520,3 +1520,6 @@ a {
 @media (max-height: 540px) { .driving-feedback-copy span { font-size: 10px; } }
 
 .finish-screen { max-height: calc(100% - 2rem); overflow-y: auto; z-index: 6; }
+
+.render-settings-loading { position: absolute; top: 45%; left: 50%; transform: translateX(-50%); }
+.render-settings-warning { position: absolute; top: 100%; right: 0; padding: .2rem .4rem; border-radius: .3rem; background: #142c36; color: #ffe0a3; font-size: .65rem; white-space: nowrap; }
