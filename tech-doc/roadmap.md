@@ -547,6 +547,8 @@ server/
 - [ ] **P6-T08｜CI/CD、監控及安全**：Lint、型別檢查、單元、整合與核心 E2E；前後端分開部署；設定錯誤追蹤、連線紀錄、房間資源上限、輸入速率限制、HTTPS/WSS。
 - [ ] **P6-T09｜Release Candidate 驗收**：執行四人完整端到端遊玩、壓力與網路干擾測試；修正阻斷遊戲問題，撰寫公開使用說明與已知限制。
 
+2026-10-23：P6-T06 新增選圖載入優化；預覽與完整賽道資料分離，量測與驗證見 [選圖效能](track-preview-performance.md)。此局部改善不代表 P6-T06 或整個 Phase 6 驗收完成。
+
 ## 4. 涉及模組
 
 `game/assets/`、`public/models/`、`game/rendering/{Kart,Character,Track,Environment,Effects,Camera}`、`app/{game,room,controller}`、`game/network/`、`server/`、CI 工作流程、監控與部署設定。
