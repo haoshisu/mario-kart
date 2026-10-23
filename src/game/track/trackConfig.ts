@@ -39,7 +39,7 @@ export const TRACK_CONFIG = {
 } as const satisfies TrackConfig
 
 export const TRACK_COLORS = {
- asphalt: "#65758b",
+ asphalt: "#6a9cb8",
  curbRed: "#db3b37",
  curbWhite: "#f2ead8",
  grass: "#79c744",

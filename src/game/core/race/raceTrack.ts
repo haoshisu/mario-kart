@@ -29,7 +29,9 @@ export type RaceRouteSample = TrackSample & Readonly<{
   raceProgress: number;
 }>;
 
-export function createRaceTrack(samples: readonly TrackSample[]) {
+export type RaceBranch = Readonly<{ samples: readonly TrackSample[]; entryProgress: number; exitProgress: number }>;
+
+export function createRaceTrack(samples: readonly TrackSample[], branches: readonly RaceBranch[] = []) {
   const START_SAMPLE_INDEX = samples.reduce((best, sample, index) => {
     const distance = (point: Point2) => Math.hypot(point[0] - TRACK_LAYOUT.finish[0], point[1] - TRACK_LAYOUT.finish[1]);
     return distance(sample.position) < distance(samples[best].position) ? index : best;
@@ -84,7 +86,7 @@ export function createRaceTrack(samples: readonly TrackSample[]) {
       forward,
       right: sample.normal,
       halfWidth:
-        TRACK_CONFIG.roadWidth / 2 +
+        (sample.width ?? TRACK_CONFIG.roadWidth) / 2 +
         TRACK_CONFIG.curbWidth +
         RACE_CONFIG.checkpointExtraWidth,
       halfDepth: RACE_CONFIG.checkpointHalfDepth,
@@ -105,7 +107,7 @@ export function createRaceTrack(samples: readonly TrackSample[]) {
 
   const RACE_MARKERS: readonly RaceMarker[] = [FINISH_MARKER, ...CHECKPOINTS];
 
-  return { RACE_ROUTE_SAMPLES, FINISH_MARKER, CHECKPOINTS, RACE_MARKERS };
+  return { RACE_ROUTE_SAMPLES, FINISH_MARKER, CHECKPOINTS, RACE_MARKERS, branches };
 }
 export type RaceTrack = ReturnType<typeof createRaceTrack>;
 export const DEFAULT_RACE_TRACK = createRaceTrack(TRACK_SAMPLES);

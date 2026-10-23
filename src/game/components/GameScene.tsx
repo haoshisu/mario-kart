@@ -1,3 +1,4 @@
+import type { CharacterId } from "../entities/characters";
 import { JumpRamps } from "./JumpRamps";
 import { BoostPads } from "./BoostPads";
 import { memo, type RefObject } from "react";
@@ -14,6 +15,7 @@ import { PhysicsWorld } from "../physics/PhysicsWorld";
 import { RaceMarkers } from "./RaceMarkers";
 
 type GameSceneProps = {
+  characterId: CharacterId;
   cameraMode: "drive" | "inspect";
   inputEnabled: boolean;
   inputRef: RefObject<KartInput>;
@@ -26,6 +28,7 @@ type GameSceneProps = {
 };
 
 export const GameScene = memo(function GameScene({
+  characterId,
   cameraMode,
   inputEnabled,
   inputRef,
@@ -40,6 +43,7 @@ export const GameScene = memo(function GameScene({
     <>
       <SceneLights />
       <PhysicsWorld
+        characterId={characterId}
         inputEnabled={inputEnabled}
         inputRef={inputRef}
         inputReceiptRef={inputReceiptRef}

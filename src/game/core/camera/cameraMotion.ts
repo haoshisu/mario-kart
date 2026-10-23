@@ -30,7 +30,8 @@ export function stepCameraMotion(
   // exact pose keeps the camera-to-kart distance independent of speed changes.
   motion.x.value = position.x;
   motion.x.velocity = 0;
-  advanceSpring(motion.y, position.y, config.heightFrequency, dt, reset);
+  motion.y.value = position.y;
+  motion.y.velocity = 0;
   motion.z.value = position.z;
   motion.z.velocity = 0;
   advanceSpring(motion.yaw, targetYaw, config.turnFrequency, dt, reset);

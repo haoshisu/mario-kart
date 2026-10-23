@@ -17,7 +17,7 @@ export function projectileContactTime(start: Point2, end: Point2, radius: number
 }
 
 const prepareGuards = (segments: readonly GuardRailSegment[]) => segments.map((guard) => ({
-  x: guard.position[0], z: guard.position[2],
+  x: guard.position[0], z: guard.position[2], height: guard.position[1], halfHeight: guard.size[1] / 2 + 1,
   cos: Math.cos(guard.rotationY), sin: Math.sin(guard.rotationY),
   halfX: guard.size[0] * Math.cos(guard.rotationZ) / 2 + ITEM_CONFIG.projectileRadius,
   halfZ: guard.size[2] / 2 + ITEM_CONFIG.projectileRadius,
@@ -25,9 +25,10 @@ const prepareGuards = (segments: readonly GuardRailSegment[]) => segments.map((g
 
 const defaultGuards = prepareGuards(GUARD_RAIL_SEGMENTS);
 
-export function projectileWallTime(start: Point2, end: Point2, guards = defaultGuards) {
+export function projectileWallTime(start: Point2, end: Point2, guards = defaultGuards, height?: number) {
   let nearest = Infinity;
   for (const guard of guards) {
+    if (height !== undefined && Math.abs(height - guard.height) > guard.halfHeight) continue;
     const sx = start[0] - guard.x, sz = start[1] - guard.z;
     const dx = end[0] - start[0], dz = end[1] - start[1];
     let enter = 0, leave = 1;
@@ -53,18 +54,18 @@ export class ProjectileSystem {
   private active: ProjectileState[] = [];
   private nextId = 0;
   private readonly guards;
-  constructor(segments = GUARD_RAIL_SEGMENTS) { this.guards = prepareGuards(segments); }
+  constructor(segments = GUARD_RAIL_SEGMENTS, private readonly heightAt?: (x: number, z: number, height: number) => number) { this.guards = prepareGuards(segments); }
 
   launch(owner: ItemRacer, kind: "disc" | "orb", racers: readonly ItemRacer[]) {
     const forward: Point2 = [-Math.sin(owner.yaw), -Math.cos(owner.yaw)];
     let targetId: string | null = null;
     let nearest: number = ITEM_CONFIG.orbTargetRange;
     if (kind === "orb") for (const racer of [...racers].sort((a, b) => a.id.localeCompare(b.id))) {
-      if (!racer.eligible || racer.id === owner.id) continue;
+      if (!racer.eligible || racer.id === owner.id || (racer.height !== undefined && owner.height !== undefined && Math.abs(racer.height - owner.height) > 2)) continue;
       const dx = racer.position[0] - owner.position[0], dz = racer.position[1] - owner.position[1];
       const distance = Math.hypot(dx, dz);
       if (distance > 0 && distance < nearest && (dx * forward[0] + dz * forward[1]) / distance >= ITEM_CONFIG.orbForwardCone &&
-        projectileWallTime(owner.position, racer.position, this.guards) === Infinity) {
+        projectileWallTime(owner.position, racer.position, this.guards, owner.height) === Infinity) {
         nearest = distance; targetId = racer.id;
       }
     }
@@ -72,7 +73,7 @@ export class ProjectileSystem {
     // rails cannot be skipped by placing the muzzle beyond them.
     const position: Point2 = [owner.position[0], owner.position[1]];
     this.active.push({ id: `shot-${++this.nextId}`, ownerId: owner.id, kind, position,
-      yaw: owner.yaw, targetId, remaining: ITEM_CONFIG.projectileLifetime });
+      yaw: owner.yaw, height: owner.height, targetId, remaining: ITEM_CONFIG.projectileLifetime });
     if (this.active.length > ITEM_CONFIG.maximumProjectiles) this.active.shift();
   }
 
@@ -81,7 +82,7 @@ export class ProjectileSystem {
       const elapsed = Math.min(Math.max(0, delta), shot.remaining);
       if (shot.targetId) {
         const target = racers.find((racer) => racer.id === shot.targetId && racer.eligible);
-        if (!target) shot.targetId = null;
+        if (!target || (target.height !== undefined && shot.height !== undefined && Math.abs(target.height - shot.height) > 2)) shot.targetId = null;
         else {
           const desired = Math.atan2(-(target.position[0] - shot.position[0]), -(target.position[1] - shot.position[1]));
           const error = Math.atan2(Math.sin(desired - shot.yaw), Math.cos(desired - shot.yaw));
@@ -92,10 +93,11 @@ export class ProjectileSystem {
       const start = shot.position;
       const end: Point2 = [start[0] - Math.sin(shot.yaw) * ITEM_CONFIG.projectileSpeed * elapsed,
         start[1] - Math.cos(shot.yaw) * ITEM_CONFIG.projectileSpeed * elapsed];
-      let contact = projectileWallTime(start, end, this.guards);
+      if (shot.height !== undefined && this.heightAt) shot.height = this.heightAt(end[0], end[1], shot.height);
+      let contact = projectileWallTime(start, end, this.guards, shot.height);
       let victim: ItemRacer | undefined;
       for (const racer of racers) {
-        if (!racer.eligible || racer.id === shot.ownerId) continue;
+        if (!racer.eligible || racer.id === shot.ownerId || (racer.height !== undefined && shot.height !== undefined && Math.abs(racer.height - shot.height) > 1.4)) continue;
         const time = projectileContactTime([start[0] - racer.previousPosition[0], start[1] - racer.previousPosition[1]],
           [end[0] - racer.position[0], end[1] - racer.position[1]], ITEM_CONFIG.projectileHitRadius);
         if (time < contact) { contact = time; victim = racer; }

@@ -1,5 +1,6 @@
 "use client";
 
+import { DEFAULT_CHARACTER, type CharacterId } from "../entities/characters";
 import type { TrackId } from "../track/trackCatalog";
 
 import { createSnapshotDiagnostics } from "./snapshotDiagnostics";
@@ -61,7 +62,7 @@ function errorMessage(error: unknown) {
 export function useHostRoom(): {
   state: HostRoomState;
   snapshotsRef: RefObject<SnapshotBuffer>;
-  createRoom: (mode?: RoomMode, hostPlays?: boolean, trackId?: TrackId) => Promise<void>;
+  createRoom: (mode?: RoomMode, hostPlays?: boolean, trackId?: TrackId, characterId?: CharacterId) => Promise<void>;
   sendInput: (input: KartInput) => void;
   useItem: (revision: number) => void;
   closeRoom: () => Promise<void>;
@@ -177,7 +178,7 @@ export function useHostRoom(): {
     }));
   }, []);
 
-  const createRoom = useCallback(async (mode: RoomMode = "multiplayer", hostPlays = true, trackId: TrackId = "meadow") => {
+  const createRoom = useCallback(async (mode: RoomMode = "multiplayer", hostPlays = true, trackId: TrackId = "meadow", characterId: CharacterId = DEFAULT_CHARACTER) => {
     if (roomRef.current || creationRef.current) {
       return;
     }
@@ -194,6 +195,7 @@ export function useHostRoom(): {
         mode,
         hostPlays,
         trackId,
+        characterId,
         protocolVersion: NETWORK_CONFIG.protocolVersion,
       });
       if (creation.signal.aborted) {

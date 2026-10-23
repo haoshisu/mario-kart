@@ -38,3 +38,19 @@ it("snaps camera height on a vertical respawn instead of chasing through the roa
   expect(state.revision).toBe(2);
   expect(state.position.y).toBeCloseTo(8 + CHASE_CAMERA_CONFIG.height);
 });
+
+
+it("widens the view smoothly with speed and keeps constant kart-relative height on slopes", () => {
+  const state = createChaseCamera();
+  for (let i = 0; i < 120; i++) {
+    const y = .52 + i * .1;
+    stepChaseCamera(state, { position: [i * .25, y, 0], yaw: 0, spinOutRemaining: 0, speed: 23 }, "racing", 1 / 60);
+    expect(state.position.y - y).toBeCloseTo(CHASE_CAMERA_CONFIG.height - CHASE_CAMERA_CONFIG.speedHeight);
+    expect(state.fov).toBe(57);
+  }
+  stepChaseCamera(state, { position: [30, 12.52, 0], yaw: 0, spinOutRemaining: 0, speed: 0 }, "racing", 1 / 60);
+  expect(state.fov).toBeGreaterThan(44);
+  expect(state.fov).toBeLessThan(57);
+  for (let i = 0; i < 180; i++) stepChaseCamera(state, { position: [30, 12.52, 0], yaw: 0, spinOutRemaining: 0, speed: 0 }, "racing", 1 / 60);
+  expect(state.fov).toBeCloseTo(44, 4);
+});

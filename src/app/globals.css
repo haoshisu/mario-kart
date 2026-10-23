@@ -631,6 +631,9 @@ a {
 }
 
 .host-room-panel--compact {
+  max-height: calc(100% - 5.5rem);
+  overflow-y: auto;
+  max-width: calc(100% - 2.5rem);
   align-items: flex-start;
   display: grid;
   gap: 0.45rem;
@@ -1123,6 +1126,10 @@ a {
   width: calc(100% - 2rem);
 }
 
+.multiplayer-results { max-height: calc(100% - 2rem); overflow-y: auto; z-index: 6; }
+.multiplayer-results button:disabled { opacity: .45; cursor: not-allowed; }
+.multiplayer-results > p { font-size: .8rem; color: var(--muted); }
+
 .multiplayer-results h2 {
   font-size: 2rem;
   margin: 0 0 1rem;
@@ -1308,6 +1315,7 @@ a {
 .player-screen > :not(.player-game) { z-index: 2; }
 .player-screen .controller-status-bar { background: #101b22d9; border-radius: 12px; padding: 8px; }
 .player-screen .controller-lobby, .player-screen .controller-result { margin: auto; overflow: auto; max-height: calc(100dvh - 95px); }
+.player-screen .controller-result { position: relative; z-index: 6; background: rgba(20, 24, 21, .98); }
 .player-screen .controller-options { position: absolute; top: 76px; left: max(12px, env(safe-area-inset-left)); flex-wrap: wrap; max-width: calc(100% - 24px); background: #101b22d9; border-radius: 12px; padding: 6px; font-size: 12px; }
 .player-race-status { position: absolute; top: 124px; left: 16px; margin: 0; padding: 6px 10px; background: #101b22d9; border-radius: 12px; font-size: 12px; }
 .player-screen .controller-pad, .keyboard-race-controls .controller-pad { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; height: 76px; display: flex; justify-content: space-between; gap: 16px; pointer-events: none; }
@@ -1475,3 +1483,38 @@ a {
 .player-screen .controller-options { align-items: flex-start; }
 .player-screen .controller-options .driving-guide { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 8px 10px; border-radius: 12px; background: #101b22d9; }
 .player-screen .controller-options .driving-guide span { flex-basis: auto; }
+
+.speed-flow {
+  position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2;
+  pointer-events: none; overflow: hidden; transition: opacity .18s;
+  mask-image: radial-gradient(ellipse at 50% 58%, transparent 48%, #000 95%);
+  stroke: #effcff; stroke-width: 1.5; stroke-dasharray: 12 180;
+  animation: speed-flow-out .8s linear infinite;
+}
+@keyframes speed-flow-out { to { stroke-dashoffset: -192; } }
+@media (prefers-reduced-motion: reduce) { .speed-flow { display: none; } }
+.speed-flow[data-active="false"] { animation-play-state: paused; }
+
+/* Audio stays above the touch actions on the dedicated player screen. */
+.player-screen > .race-audio { top: auto; bottom: max(180px, calc(env(safe-area-inset-bottom) + 168px)); right: max(12px, env(safe-area-inset-right)); padding: 4px 6px; }
+.player-screen > .race-audio input { width: 52px; }
+@media (max-height: 500px) { .player-screen > .race-audio { top: 144px; bottom: auto; } }
+
+.slipstream-hud { position: fixed; z-index: 4; left: 50%; bottom: max(148px, calc(env(safe-area-inset-bottom) + 136px)); transform: translateX(-50%); width: min(220px, 55vw); padding: 7px 12px; border: 1px solid #82eaff99; border-radius: 12px; background: #102438e8; color: #b5f2ff; text-align: center; pointer-events: none; }
+.slipstream-hud strong { display: block; font-size: 13px; line-height: 20px; }
+.slipstream-meter { height: 5px; margin-top: 3px; border-radius: 4px; overflow: hidden; background: #ffffff22; }
+.slipstream-meter span { display: block; width: 100%; height: 100%; transform-origin: left; background: #82eaff; }
+.slipstream-hud.is-ready, .slipstream-hud.is-boosting { color: #ecffbd; border-color: #d9ff85; }
+.slipstream-hud:is(.is-ready, .is-boosting) .slipstream-meter span { background: #d9ff85; }
+.player-screen .slipstream-hud { bottom: 272px; width: min(210px, 55vw); }
+@media (max-height: 500px) { .slipstream-hud { bottom: 190px; padding: 3px 9px; } .player-screen .slipstream-hud { bottom: 190px; } .slipstream-hud strong { font-size: 11px; line-height: 16px; } }
+
+/* Keep the racing announcement readable without widening over the steering controls. */
+.item-feedback-banner { max-width: min(520px, calc(100vw - 32px)); white-space: normal; }
+.driving-feedback-copy { min-width: 0; display: grid; gap: 2px; }
+.driving-feedback-copy strong, .driving-feedback-copy span { overflow-wrap: anywhere; }
+.driving-feedback-copy span { font-size: 12px; color: #d5e2e8; }
+.driving-feedback-tiers { display: flex; gap: 3px; flex-shrink: 0; }
+.driving-feedback-tiers i { width: 8px; height: 20px; border-radius: 3px; background: #54616b; }
+.item-feedback-banner small { flex-shrink: 0; }
+@media (max-height: 540px) { .driving-feedback-copy span { font-size: 10px; } }

@@ -1,8 +1,10 @@
+import { SpeedFlow } from "./SpeedFlow";
 import { getDriftTierConfig } from "../core/kart/kartConfig";
 import type { KartTelemetry } from "../runtime/kartRuntime";
 import { Countdown } from "./Countdown";
 import { FinishScreen } from "./FinishScreen";
 import { RaceHud } from "./RaceHud";
+import { useTrack } from "../track/TrackContext";
 
 type GameHudProps = {
   cameraMode: "drive" | "inspect";
@@ -47,10 +49,13 @@ export function GameHud({
   onRestart,
   onToggleCamera,
 }: GameHudProps) {
+  const track = useTrack();
   const status = getStatus(telemetry, ready);
 
   return (
     <div className="kart-hud" data-testid="game-hud">
+      <SpeedFlow speed={telemetry.signedSpeed} boosting={telemetry.turboActive}
+        active={cameraMode === "drive" && telemetry.race.phase === "RACING"} />
       <output
         className="visually-hidden"
         data-testid="kart-runtime"
@@ -107,7 +112,7 @@ export function GameHud({
             <span><kbd>↑</kbd> / <kbd>W</kbd> 加速</span>
             <span><kbd>↓</kbd> / <kbd>S</kbd> 煞車／倒車</span>
             <span><kbd>← →</kbd> / <kbd>A D</kbd> 轉向</span>
-            <span><kbd>SPACE</kbd> 漂移</span>
+            <span><kbd>SPACE</kbd> {track.id === "taipei" ? "漂移／起跳點按特技" : "漂移"}</span>
           </>
         ) : (
           <span>拖曳旋轉 · 滾輪縮放 · 右鍵平移</span>

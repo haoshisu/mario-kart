@@ -37,7 +37,7 @@ export function MultiplayerKartEffects({ playerId, snapshotsRef }: {
       for (const material of sparkMaterials.current) material?.color.set(getDriftTierConfig(player.driftTier)?.color ?? "#ffb423");
     }
     if (flames.current) {
-      flames.current.visible = player.item.boostRemaining > 0 || player.turboTier > 0;
+      flames.current.visible = player.item.boostRemaining > 0 || player.turboTier > 0 || player.slipstream.boostRemaining > 0;
       flames.current.scale.z = 1.8 + Math.sin(time * 36) * 0.2;
     }
     if (shield.current) {

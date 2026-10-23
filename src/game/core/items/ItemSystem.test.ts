@@ -188,6 +188,17 @@ describe("authoritative item rules", () => {
     system.step(ITEM_CONFIG.padCooldown, [onPad], 3);
     expect(system.getPlayer("a")?.boostRemaining).toBe(ITEM_CONFIG.padBoostSeconds);
   });
+  it("refreshes a consecutive pad before the previous pad cooldown ends", () => {
+    const system = new ItemSystem(1);
+    system.addPlayer("a");
+    system.step(.1, [racer("a", BOOST_PADS[1].position)], 1);
+    system.step(.5, [], 2);
+    expect(system.getPlayer("a")?.boostRemaining).toBeCloseTo(.4);
+    system.step(.1, [racer("a", BOOST_PADS[6].position)], 3);
+    expect(system.getPlayer("a")?.boostRemaining).toBe(ITEM_CONFIG.padBoostSeconds);
+    system.step(.5, [racer("a", BOOST_PADS[6].position)], 4);
+    expect(system.getPlayer("a")?.boostRemaining).toBeCloseTo(.4);
+  });
   it("expires unused traps and bounds transient events", () => {
     const system = pickup("trap");
     system.use(racer("a"), system.getPlayer("a")?.revision ?? -1, 2);

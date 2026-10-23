@@ -28,6 +28,13 @@ export function JumpRamps() {
           <boxGeometry args={[.15, .04, .9]} /><meshBasicMaterial color="#ffffff" />
         </mesh>)}
       </group>)}
+      {[-1, 1].map(side => <group key={side} position={[side * (width / 2 + .35), 0, length]}>
+        <mesh position={[0, .65, 0]}><cylinderGeometry args={[.08, .08, 1.3, 6]} /><meshStandardMaterial color="#ffffff" /></mesh>
+        <mesh position={[0, 1.4, 0]} rotation={[0, 0, Math.PI / 4]}><boxGeometry args={[.65, .65, .12]} /><meshBasicMaterial color={track.accent} /></mesh>
+      </group>)}
+      {[-1, 1].map(side => <mesh key={side} position={[side * (width / 2 - .08), rise / 2 + .035, length / 2]} rotation={[Math.atan(rise / length), 0, 0]}>
+        <boxGeometry args={[.1, .05, Math.hypot(length, rise)]} /><meshBasicMaterial color="#fff29c" />
+      </mesh>)}
       <mesh position={[0, rise + .035, 0]}><boxGeometry args={[width, .08, .16]} /><meshBasicMaterial color="#ffffff" /></mesh>
     </group>)}
   </group>;

@@ -1,0 +1,21 @@
+.content { min-width: 0; }
+.track { color: var(--muted); font-size: .8rem; margin: 0 0 .4rem; }
+.winner { display: flex; flex-direction: column; gap: .25rem; padding: .7rem; border-radius: 12px; background: #d7ff3814; border: 1px solid #d7ff3866; }
+.winner span { font-size: .75rem; color: var(--acid); }
+.winner strong { font-size: 1.4rem; overflow-wrap: anywhere; }
+.personal { display: grid; grid-template-columns: 1fr auto; gap: .35rem; margin: .8rem 0; }
+.personal small { grid-column: 1 / -1; color: var(--muted); }
+.ranking { list-style: none; padding: 0; margin: .8rem 0; display: grid; gap: .3rem; }
+.ranking li { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .45rem; border-radius: 6px; }
+.ranking strong { min-width: 0; overflow-wrap: anywhere; }
+.ranking span { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.own { background: #d7ff3814; outline: 1px solid #d7ff3855; }
+.note { font-size: .75rem; color: var(--muted); }
+.waiting { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); width: min(380px, 85%); text-align: center; padding: 1rem; border-radius: 14px; background: #101b16eb; color: #e4ff9b; pointer-events: none; z-index: 4; }
+@media (max-height: 500px) {
+  .winner { padding: .4rem; flex-direction: row; align-items: baseline; gap: .6rem; }
+  .winner strong { font-size: 1rem; }
+  .personal { margin: .4rem 0; }
+  .ranking li { padding: .2rem; }
+  .waiting { top: 10%; padding: .5rem; }
+}

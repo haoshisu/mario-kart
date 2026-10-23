@@ -1,6 +1,9 @@
+import { routeLength, sampleAtDistance } from "../../track/trackPlacement";
 import type { TrackId } from "../../track/trackCatalog";
 import { surfaceOffsetHeight, sampleTrackSurface, roadOrientation } from "../../track/trackSurface";
 import { RACE_ROUTE_SAMPLES, type RaceRouteSample } from "../race/raceTrack";
+import type { JumpRamp } from "../stunts/stuntSystem";
+import { createItemRows } from "./itemRows";
 
 export const ITEM_KINDS = ["boost", "shield", "trap", "disc", "orb"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -15,7 +18,7 @@ export const ITEM_DESCRIPTIONS: Readonly<Record<ItemKind, string>> = {
 };
 
 export const ITEM_CONFIG = {
-  boxCooldown: 5,
+  boxCooldown: 2.5,
   pickupRadius: 0.95,
   useCooldown: 0.65,
   boostSeconds: 2,
@@ -45,9 +48,9 @@ export const ITEM_CONFIG = {
   finishGraceSeconds: 30,
 } as const;
 
-export function createItemPlacements(route: readonly RaceRouteSample[], trackId: TrackId = "meadow") {
+export function createItemPlacements(route: readonly RaceRouteSample[], trackId: TrackId = "meadow", ramps: readonly JumpRamp[] = [], obstacleFractions: readonly number[] = []) {
   function routePoint(fraction: number, lane: number) {
-    const sample = route[Math.round(fraction * route.length) % route.length];
+    const sample = sampleAtDistance(route, fraction * routeLength(route));
     const position = [sample.position[0] + sample.normal[0] * lane, sample.position[1] + sample.normal[1] * lane] as const;
     const yaw = Math.atan2(-sample.tangent[0], -sample.tangent[1]);
     return {
@@ -58,21 +61,47 @@ export function createItemPlacements(route: readonly RaceRouteSample[], trackId:
     };
   }
 
-  // Shared placement data keeps authority and visible pickups/pads aligned.
-  const ITEM_BOXES = [0.08, 0.4, 0.72].flatMap((fraction, row) =>
-    [-2.7, -0.9, 0.9, 2.7].map((lane, column) => ({
-      id: `box-${row}-${column}`, ...routePoint(fraction, lane),
-    })));
-  // Optional off-centre boosts reward lining up early without forcing every kart
-  // onto the same racing line. The S-bend exit requires a deliberate lane change.
-  const fractions: Record<TrackId, readonly number[]> = {
-    meadow: [.13, .29, .46, .58, .81, .94], harbor: [.1, .25, .48, .6, .74, .9],
-    canyon: [.09, .22, .39, .61, .77, .93], aurora: [.08, .23, .38, .54, .69, .88],
+  // Keep the approved road-width clearances independent of new supply rows.
+  // Reusing these anchors preserves the existing tapers and jump runways.
+  const boxFractions: Record<TrackId, readonly number[]> = {
+    tainan: [.08,.44,.92], taichung: [.08,.44,.92],
+    taipei: [.095,.46,.89], jiufen: [.08,.44,.92], kaohsiung: [.08,.42,.92], alishan: [.08,.44,.92],
+    forest: [.24,.48,.87], clockwork: [.24,.48,.87], volcano: [.24,.48,.87],
+    meadow: [.2, .64, .84], harbor: [.16, .6, .86],
+    canyon: [.12, .52, .84], aurora: [.18, .4, .68],
   };
-  const BOOST_PADS = fractions[trackId].map((fraction, index) => [fraction, index % 2 ? 2.4 : -2.4]).map(([fraction, lane], index) => ({
+  const ITEM_ROAD_CLEARANCES = boxFractions[trackId].flatMap((fraction, row) =>
+    [-2.9, -1.9, -.9, .1].map((lane, column) => ({
+      id: `box-${row}-${column}`, ...routePoint(fraction, trackId === "harbor" && row === 1
+        ? .9 + column * .7 : trackId === "canyon" && row === 2 ? -lane : lane),
+    })));
+  const fractions: Record<TrackId, readonly number[]> = {
+    tainan: [.08,.48,.72,.79,.86,.95], taichung: [.08,.48,.72,.79,.86,.95],
+    taipei: [.245,.49,.66,.79,.865,.95], jiufen: [.08,.52,.72,.79,.86,.95], kaohsiung: [.08,.48,.72,.79,.86,.95], alishan: [.08,.69,.48,.79,.86,.95],
+    forest: [.08,.38,.48,.74,.86,.95], clockwork: [.08,.38,.48,.74,.86,.95], volcano: [.08,.38,.48,.74,.86,.95],
+    meadow: [.12, .44, .59, .76, .86, .95], harbor: [.12, .52, .63, .73, .86, .96],
+    canyon: [.12, .46, .57, .77, .86, .95], aurora: [.12, .3, .44, .6, .79, .95],
+  };
+  const padLanes: Record<TrackId, readonly number[]> = {
+    tainan: [-2.4,-2.4,2.4,-2.4,2.4,2.4], taichung: [-2.4,-2.4,2.4,-2.4,2.4,2.4],
+    taipei: [-2.4,-2.4,2.4,-2.1,2.1,2.4], jiufen: [-2.4,-2.4,2.4,-2.4,2.4,2.4], kaohsiung: [-2.4,-2.4,2.4,-2.4,2.4,2.4], alishan: [-2.4,-2.4,2.4,-2.4,2.4,2.4],
+    forest: [-2.4,2.4,-2.4,2.4,-2.4,2.4], clockwork: [-2.4,2.4,-2.4,2.4,-2.4,2.4], volcano: [-2.4,2.4,-2.4,2.4,-2.4,2.4],
+    meadow: [-2.4, 2.4, -2.4, 2.4, -2.4, -2.4],
+    harbor: [-2.4, 2.4, 2.4, -2.4, -2.4, 2.4],
+    canyon: [-2.4, 2.4, -2.4, 2.4, 2.4, 2.4],
+    aurora: [-2.4, 2.4, -2.4, 2.4, -2.4, 2.4],
+  };
+  const basePads = fractions[trackId].map((fraction, index) => ({ fraction, lane: padLanes[trackId][index] }));
+  const length = routeLength(route);
+  // The authored chain is measured in metres, independent of sample density.
+  const chainStart = sampleAtDistance(route, basePads[1].fraction * length);
+  const placements = [...basePads, ...[9, 18].map(distance => ({
+    fraction: sampleAtDistance(route, chainStart.distance + distance).raceProgress, lane: basePads[1].lane,
+  }))];
+  const BOOST_PADS = placements.map(({ fraction, lane }, index) => ({
     id: `pad-${index}`, ...routePoint(fraction, lane),
   }));
 
-  return { ITEM_BOXES, BOOST_PADS };
+  return { ITEM_BOXES: createItemRows(route, ramps, obstacleFractions), BOOST_PADS, ITEM_ROAD_CLEARANCES };
 }
 export const { ITEM_BOXES, BOOST_PADS } = createItemPlacements(RACE_ROUTE_SAMPLES);

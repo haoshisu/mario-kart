@@ -8,6 +8,8 @@ export type TrackSample = Readonly<{
   progress: number;
   height: number;
   bank: number;
+  width?: number;
+  courseProgress?: number;
 }>;
 
 // Flatten authored Beziers, then resample by arc length. Equal metre spacing
@@ -70,9 +72,9 @@ export function pointAtTrackOffset(sample: TrackSample, offset: number) {
 export const TRACK_SAMPLES = createTrackSamples();
 
 /** Scenery clearance uses the same centreline as collision and racing. */
-export function distanceToTrack(x: number, z: number, samples = TRACK_SAMPLES) {
+export function distanceToTrack(x: number, z: number, samples: readonly TrackSample[] = TRACK_SAMPLES, options: { closed?: boolean } = {}) {
   let nearest = Infinity;
-  for (let i = 0; i < samples.length; i += 1) {
+  for (let i = 0; i < samples.length - (options.closed === false ? 1 : 0); i += 1) {
     const a = samples[i].position;
     const b = samples[(i + 1) % samples.length].position;
     const dx = b[0] - a[0], dz = b[1] - a[1];

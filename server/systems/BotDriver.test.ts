@@ -5,6 +5,7 @@ import { SimulationSystem } from "./SimulationSystem";
 import { botInput } from "./BotDriver";
 import { BOT_CONFIG } from "./botConfig";
 import { PLAYER_COLORS } from "../../src/game/network/networkConfig";
+import { ITEM_CONFIG } from "../../src/game/core/items/itemConfig";
 
 beforeAll(async () => { await RAPIER.init(); });
 
@@ -23,9 +24,11 @@ it.each([...TRACK_IDS.map((trackId) => ({ trackId, seed: 42 })), { trackId: "mea
     simulation.addPlayer("human", "Player", PLAYER_COLORS[0]);
     BOT_CONFIG.laneOffsets.forEach((lane, index) => simulation.addPlayer(`cpu-${index}`, `CPU ${index}`, PLAYER_COLORS[index + 1], lane));
     simulation.start();
-    const used = new Set<string>();
-    for (let tick = 0; tick < 120 * 60 && simulation.getPhase() !== "finished"; tick += 1) {
+    const used = new Set<string>(), drifted = new Set<string>(), charged = new Set<string>();
+    const raceSeconds = simulation.track.samples.length * 3 / 10 + ITEM_CONFIG.finishGraceSeconds + 20;
+    for (let tick = 0; tick < raceSeconds * 60 && simulation.getPhase() !== "finished"; tick += 1) {
       simulation.step(1000 + tick * 1000 / 60);
+      if (trackId === "taipei" && tick % 6 === 0) for (const player of simulation.getSnapshot().players) { if (player.drifting) drifted.add(player.id); if (player.driftTier > 0) charged.add(player.id); }
       if (tick % 30 === 0) for (const event of simulation.getSnapshot().items.events) {
         if (event.kind === "use") used.add(event.playerId);
       }
@@ -36,10 +39,14 @@ it.each([...TRACK_IDS.map((trackId) => ({ trackId, seed: 42 })), { trackId: "mea
       expect(bot, JSON.stringify(bot)).toMatchObject({ status: "finished", completedLaps: 3 });
       expect(bot.finishTime).toBeGreaterThan(10);
       expect(used.has(bot.id)).toBe(true);
+      if (trackId === "taipei") {
+        expect(drifted.has(bot.id), `${bot.id} uses drift on actual bends`).toBe(true);
+        expect(charged.has(bot.id), `${bot.id} charges drift on actual bends`).toBe(true);
+      }
     }
     expect(snapshot.players.find((player) => player.id === "human")?.status).toBe("dnf");
     simulation.returnToLobby();
     simulation.start();
     expect(simulation.getSnapshot().players.every((player) => player.completedLaps === 0 && player.item.held === null)).toBe(true);
   } finally { simulation.dispose(); }
-});
+}, 25_000);

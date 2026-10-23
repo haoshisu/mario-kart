@@ -1,5 +1,7 @@
 "use client";
 
+import { CharacterPicker } from "./CharacterPicker";
+import { CHARACTERS, type CharacterId } from "../entities/characters";
 import { QRCode } from "@/components/QRCode";
 import { useState } from "react";
 import { PLAYER_COLOR_VALUES } from "../network/networkConfig";
@@ -12,10 +14,13 @@ import { TRACK_CATALOG, type TrackId } from "../track/trackCatalog";
 type HostRoomPanelProps = {
   state: HostRoomState;
   selectedTrackId: TrackId;
+  characterId: CharacterId;
+  onSelectCharacter: (id: CharacterId) => void;
   onSelectTrack: (id: TrackId) => void;
   onCreate: (mode?: RoomMode, hostPlays?: boolean) => void;
   onClose: () => void;
   onStart: () => void;
+  practiceActive?: boolean;
 };
 
 function playerStatus(state: HostRoomState) {
@@ -26,21 +31,24 @@ function playerStatus(state: HostRoomState) {
   return `${state.players.length}/4 位玩家`;
 }
 
-export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrackId, onSelectTrack }: HostRoomPanelProps) {
+export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrackId, onSelectTrack, practiceActive = false, characterId, onSelectCharacter }: HostRoomPanelProps) {
   const [hostPlays, setHostPlays] = useState(true);
   const [panelPreference, setPanelPreference] = useState<{
-    roomId: string | null; racePhase: HostRoomState["racePhase"]; collapsed: boolean;
+    roomId: string | null; racePhase: HostRoomState["racePhase"]; collapsed: boolean; practiceActive: boolean;
   } | null>(null);
-  const autoCollapsed = state.racePhase === "countdown" || state.racePhase === "racing" || state.racePhase === "finished";
-  const collapsed = panelPreference?.roomId === state.roomId && panelPreference.racePhase === state.racePhase
+  const autoCollapsed = practiceActive || state.racePhase === "countdown" || state.racePhase === "racing" || state.racePhase === "finished";
+  const collapsed = panelPreference?.roomId === state.roomId && panelPreference.racePhase === state.racePhase && panelPreference.practiceActive === practiceActive
     ? panelPreference.collapsed : autoCollapsed;
-  const setCollapsed = (next: boolean) => setPanelPreference({ roomId: state.roomId, racePhase: state.racePhase, collapsed: next });
+  const setCollapsed = (next: boolean) => setPanelPreference({ roomId: state.roomId, racePhase: state.racePhase, collapsed: next, practiceActive });
   const controllerUrl =
     state.roomId && typeof window !== "undefined"
       ? `${window.location.origin}/controller/${encodeURIComponent(state.roomId)}`
       : null;
 
   if (state.phase === "idle" || state.phase === "error") {
+    if (collapsed) return <aside className="host-room-panel host-room-panel--compact" data-testid="host-room-panel">
+      <button type="button" aria-expanded={false} onClick={() => setCollapsed(false)}>選圖與賽事</button>
+    </aside>;
     return (
       <aside
         className="host-room-panel host-room-panel--compact"
@@ -48,7 +56,9 @@ export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrack
         data-testid="host-room-panel"
       >
         <span>CHOOSE YOUR CIRCUIT</span>
-        <TrackPicker value={selectedTrackId} onChange={onSelectTrack} />
+        <TrackPicker value={selectedTrackId} onChange={id => { onSelectTrack(id); if (practiceActive) setCollapsed(true); }} />
+        <CharacterPicker value={characterId} onChange={onSelectCharacter} />
+        {practiceActive ? <button type="button" onClick={() => setCollapsed(true)}>返回駕駛</button> : null}
         <label><input type="checkbox" checked={hostPlays} onChange={(event) => setHostPlays(event.target.checked)} />房主直接參賽</label>
         {state.error ? <p className="host-room-panel__error">{state.error}</p> : null}
         <button
@@ -117,7 +127,7 @@ export function HostRoomPanel({ state, onCreate, onClose, onStart, selectedTrack
           {state.players.map((player) => (
             <li key={player.id}>
               <i style={{ backgroundColor: PLAYER_COLOR_VALUES[player.color] }} />
-              <span>{player.nickname}</span>
+              <span>{player.nickname} · {CHARACTERS[player.characterId].name}</span>
               <b>{player.isBot ? "CPU" : player.connection === "reconnecting" ? "重連" : player.ready ? "READY" : "等待"}</b>
             </li>
           ))}

@@ -33,7 +33,8 @@ const RIDGES: Prop[] = Array.from({ length: 14 }, (_, i) => {
   const angle = i * Math.PI / 7;
   return { position: [Math.cos(angle) * 78, -3, Math.sin(angle) * 65], scale: [10, 9 + i % 4 * 3, 9], color: i % 2 ? "#57b89d" : "#79cbb0" };
 });
-const ROUND_PROPS = [...CLOUDS, ...FLOWERS, ...BALLOONS, ...RIDGES];
+const ROUND_PROPS = [...CLOUDS, ...FLOWERS, ...BALLOONS,
+  ...RIDGES.filter(prop => distanceToTrack(prop.position[0], prop.position[2]) > Math.max(prop.scale[0], prop.scale[2]) + 6)];
 const FLAGS: Prop[] = Array.from({ length: 20 }, (_, i) => ({
   position: [-11.4 + i * 1.2, 3.3, -18],
   scale: [.8, .48, .07], color: ["#ff758d", "#ffd44b", "#27bfce", "#fcf4cf"][i % 4],

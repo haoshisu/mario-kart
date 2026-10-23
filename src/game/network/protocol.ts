@@ -1,8 +1,10 @@
+import { isCharacterId, type CharacterId } from "../entities/characters";
 import { isTrackId, type TrackId } from "../track/trackCatalog";
 import { EMPTY_KART_INPUT, type KartInput } from "../core/kart/kartTypes";
 import { NETWORK_CONFIG, PLAYER_COLORS, type PlayerColor } from "./networkConfig";
 import type { ItemState, ItemWorldSnapshot } from "../core/items/itemTypes";
 import type { DriftTier } from "../core/kart/kartConfig";
+import type { SlipstreamSnapshot } from "../core/kart/slipstreamSystem";
 
 export const ROOM_MESSAGE = {
   input: "input",
@@ -33,6 +35,7 @@ export type RoomJoinOptions = Readonly<{
   role: ParticipantRole;
   nickname?: string;
   color?: PlayerColor;
+  characterId?: CharacterId;
   protocolVersion: number;
   mode?: RoomMode;
   hostPlays?: boolean;
@@ -55,6 +58,7 @@ export type LobbyPlayer = Readonly<{
   id: string;
   nickname: string;
   color: PlayerColor;
+  characterId: CharacterId;
   ready: boolean;
   connection: ParticipantConnection;
   raceStatus: PlayerRaceStatus;
@@ -76,6 +80,7 @@ export type PlayerSnapshot = Readonly<{
   id: string;
   nickname: string;
   color: PlayerColor;
+  characterId: CharacterId;
   connection: ParticipantConnection;
   status: PlayerRaceStatus;
   position: readonly [x: number, y: number, z: number];
@@ -85,6 +90,7 @@ export type PlayerSnapshot = Readonly<{
   drifting: boolean;
   driftTier: DriftTier;
   turboTier: DriftTier;
+  slipstream: SlipstreamSnapshot;
   spinOutRemaining: number;
   stuntProgress: number;
   impactRevision: number;
@@ -99,6 +105,7 @@ export type PlayerSnapshot = Readonly<{
 }>;
 
 export type RaceSnapshot = Readonly<{
+  bridge?: Readonly<import("../systems/rotatingBridge").BridgeState>;
   trackId: TrackId;
   protocolVersion: number;
   tick: number;
@@ -238,7 +245,8 @@ export function isRoomJoinOptions(value: unknown): value is RoomJoinOptions {
     (value.trackId === undefined || (value.role === "host" && isTrackId(value.trackId))) &&
     value.protocolVersion === NETWORK_CONFIG.protocolVersion &&
     (value.nickname === undefined || typeof value.nickname === "string") &&
-    (value.color === undefined || isPlayerColor(value.color))
+    (value.color === undefined || isPlayerColor(value.color)) &&
+    (value.characterId === undefined || isCharacterId(value.characterId))
   );
 }
 

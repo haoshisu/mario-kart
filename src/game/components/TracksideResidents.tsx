@@ -4,7 +4,7 @@ import type { Group } from "three";
 import { useTrack } from "../track/TrackContext";
 import { distanceToTrack, pointAtTrackOffset } from "../track/trackPath";
 
-const COLORS = { meadow: ["#ffaebf", "#ffe284"], harbor: ["#52e8ef", "#ff89ce"], canyon: ["#edab69", "#83ce9a"], aurora: ["#b3a5ff", "#9ffff0"] } as const;
+const COLORS = { tainan: ["#edb987", "#b98570"], taichung: ["#96d5bc", "#e9c99b"], taipei: ["#73daca", "#f8c77d"], jiufen: ["#dc9068", "#ffd69d"], kaohsiung: ["#71cbbd", "#e9b974"], alishan: ["#90c17b", "#e4be79"], forest: ["#b9e690", "#ffcf7e"], clockwork: ["#edb96d", "#86e9df"], volcano: ["#ff986b", "#cbb0e5"], meadow: ["#ffaebf", "#ffe284"], harbor: ["#52e8ef", "#ff89ce"], canyon: ["#edab69", "#83ce9a"], aurora: ["#b3a5ff", "#9ffff0"] } as const;
 
 /** Small original spectators stay outside the guardrails; no invisible obstacles. */
 export function TracksideResidents() {
@@ -13,7 +13,8 @@ export function TracksideResidents() {
   const spots = useMemo(() => track.samples.flatMap((sample, i) => {
     if (i % 43 !== 10) return [];
     const [x, z] = pointAtTrackOffset(sample, (i % 2 ? 1 : -1) * 8);
-    return distanceToTrack(x, z, track.samples) > 7 ? [{ x, z, y: Math.max(0, sample.height), yaw: i }] : [];
+    return [track.samples, ...track.branches.map(branch => branch.samples)].every(road => distanceToTrack(x, z, road, { closed: road === track.samples }) > 7)
+      ? [{ x, z, y: Math.max(0, sample.height), yaw: i }] : [];
   }), [track]);
   useFrame(({ clock }) => {
     animated.current?.children.forEach((child, i) => {

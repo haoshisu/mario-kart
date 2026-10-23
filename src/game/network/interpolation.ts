@@ -1,9 +1,10 @@
+import { sampleDrivingSurface } from "../track/drivingSurface";
 import { applyRampSurface } from "../core/stunts/stuntSystem";
 import { getKartForward } from "../core/kart/kartPhysics";
 import { KART_CONFIG, KART_START } from "../core/kart/kartConfig";
 import { TRACK_CONFIG } from "../track/trackConfig";
 import { getTrackData } from "../track/trackData";
-import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
+import { createSurfaceResult } from "../track/trackSurface";
 import { NETWORK_CONFIG } from "./networkConfig";
 import type { PlayerSnapshot, RaceSnapshot } from "./protocol";
 
@@ -38,6 +39,11 @@ function interpolatePlayer(
     steer: mix(from.steer, to.steer),
     stuntProgress: from.stuntProgress > 0 && to.stuntProgress > 0 ? mix(from.stuntProgress, to.stuntProgress) : to.stuntProgress,
     spinOutRemaining: mix(from.spinOutRemaining, to.spinOutRemaining),
+    slipstream: { ...to.slipstream,
+      charge: from.slipstream.ready === to.slipstream.ready && from.slipstream.boostRevision === to.slipstream.boostRevision
+        ? mix(from.slipstream.charge, to.slipstream.charge) : to.slipstream.charge,
+      boostRemaining: from.slipstream.boostRevision === to.slipstream.boostRevision
+        ? mix(from.slipstream.boostRemaining, to.slipstream.boostRemaining) : to.slipstream.boostRemaining },
     raceFraction: mix(from.raceFraction, to.raceFraction),
   };
 }
@@ -47,6 +53,7 @@ function interpolateSnapshots(from: RaceSnapshot, to: RaceSnapshot, amount: numb
   const fromPlayers = new Map(from.players.map((player) => [player.id, player]));
   return {
     ...to,
+    bridge: from.bridge && to.bridge ? { ...to.bridge, angle: from.bridge.angle+(to.bridge.angle-from.bridge.angle)*amount, gateHeight: from.bridge.gateHeight+(to.bridge.gateHeight-from.bridge.gateHeight)*amount } : to.bridge,
     items: { ...to.items, projectiles: to.items.projectiles.map((shot) => {
       const previous = fromShots.get(shot.id);
       return previous ? { ...shot,
@@ -69,7 +76,6 @@ function interpolateSnapshots(from: RaceSnapshot, to: RaceSnapshot, amount: numb
 function extrapolateSnapshot(snapshot: RaceSnapshot, previous: RaceSnapshot | undefined, milliseconds: number): RaceSnapshot {
   const seconds = Math.min(milliseconds, NETWORK_CONFIG.maximumExtrapolationMs) / 1_000;
   const track = getTrackData(snapshot.trackId);
-  const samples = track.samples;
   const surface = createSurfaceResult();
   const roadEdge = TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap;
   return {
@@ -83,13 +89,13 @@ function extrapolateSnapshot(snapshot: RaceSnapshot, previous: RaceSnapshot | un
       const forward = getKartForward(player.yaw);
       const x = player.position[0] + forward.x * player.speed * seconds;
       const z = player.position[2] + forward.z * player.speed * seconds;
-      applyRampSurface(player.position[0], player.position[2], track.ramps, sampleTrackSurface(player.position[0], player.position[2], samples, surface));
+      applyRampSurface(player.position[0], player.position[2], track.ramps, sampleDrivingSurface(player.position[0], player.position[2], track, surface, player.position[1] - KART_START.position[1], snapshot.bridge?.locked));
       const height = surface.height;
       const onRoad = player.stuntProgress === 0 && surface.distance <= roadEdge &&
         Math.abs(player.position[1] - height - KART_START.position[1]) <= KART_CONFIG.grounding.snapDistance;
       let y = player.position[1];
       if (onRoad) {
-        applyRampSurface(x, z, track.ramps, sampleTrackSurface(x, z, samples, surface));
+        applyRampSurface(x, z, track.ramps, sampleDrivingSurface(x, z, track, surface, player.position[1] - KART_START.position[1], snapshot.bridge?.locked));
         // Preserve the server's clearance and follow both grade and banking.
         // Never project a car leaving the road onto a remote road segment.
         if (surface.distance <= roadEdge) y += surface.height - height;

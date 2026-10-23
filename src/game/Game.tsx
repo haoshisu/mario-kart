@@ -1,8 +1,11 @@
 "use client";
 
+import { DEFAULT_CHARACTER, type CharacterId } from "./entities/characters";
+
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { memo, type RefObject, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { CityOverviewCamera } from "./components/CityOverviewCamera";
 import { CourseMap } from "./components/CourseMap";
 import { GameScene } from "./components/GameScene";
 import { GameHud } from "./components/GameHud";
@@ -25,12 +28,15 @@ import type { InputAppliedMessage } from "./network/protocol";
 import { RenderSettings } from "./rendering/RenderSettings";
 import { SceneBoundary, SceneLoading } from "./rendering/SceneBoundary";
 import { RenderDiagnostics } from "./rendering/RenderDiagnostics";
+import { hasCityWorld, sceneCameraFar, sceneFogDistances } from "./rendering/sceneAtmosphere";
 import { CanvasRecovery } from "./rendering/CanvasRecovery";
 
+import { getTrackData } from "./track/trackData";
 import { TrackProvider } from "./track/TrackContext";
 import { TRACK_CATALOG, type TrackId } from "./track/trackCatalog";
 
 export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
+  const [characterId, setCharacterId] = useState<CharacterId>(DEFAULT_CHARACTER);
   const [selectedTrackId, setSelectedTrackId] = useState<TrackId>("meadow");
   const [cameraMode, setCameraMode] = useState<"drive" | "inspect">("drive");
   const [ready, setReady] = useState(false);
@@ -81,13 +87,13 @@ export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
   return (
     <TrackProvider id={trackId}><div data-track-id={trackId} className="game-canvas" data-follow-player={hostRoom.state.playerId ?? undefined}>
       <RenderSettings>{(quality) => <SceneBoundary><SceneLoading /><Canvas
-        camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: 240 }}
+        camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: sceneCameraFar(trackId) }}
         dpr={quality === "low" ? 1 : [1, 1.5]}
         gl={{ antialias: true }}
         shadows={quality === "standard"}
       >
         <color args={[track.sky]} attach="background" />
-        <fog args={[track.sky, overview ? 260 : 70, overview ? 650 : 165]} attach="fog" />
+        <fog args={[track.sky, ...sceneFogDistances(trackId, overview)]} attach="fog" />
         <RenderDiagnostics />
         <CanvasRecovery />
         <Suspense key={trackId} fallback={null}>
@@ -99,6 +105,7 @@ export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
               snapshotsRef={hostRoom.snapshotsRef}
             />
           ) : <GameScene
+            characterId={characterId}
             cameraMode={cameraMode}
             inputReceiptRef={inputReceiptRef}
             inputEnabled={cameraMode === "drive"}
@@ -110,20 +117,22 @@ export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
             runtimeRef={runtimeRef}
           />}
         </Suspense>
+        {!multiplayerActive && cameraMode === "inspect" && hasCityWorld(trackId) && <CityOverviewCamera />}
         {!multiplayerActive && cameraMode === "inspect" ? (
           <OrbitControls
             enableDamping
             enablePan
-            maxDistance={140}
+            maxDistance={hasCityWorld(trackId) ? 950 : 140}
             maxPolarAngle={Math.PI / 2.04}
             minDistance={12}
             minPolarAngle={Math.PI / 8}
-            target={[0, 0.5, 0]}
+            target={hasCityWorld(trackId) ? [getTrackData(trackId).bounds.centerX, 0.5, getTrackData(trackId).bounds.centerZ] : [0, 0.5, 0]}
           />
         ) : null}
       </Canvas></SceneBoundary>}</RenderSettings>
       {multiplayerActive ? (
         <MultiplayerHud
+          playerId={hostRoom.state.playerId}
           hasConnectedHuman={hostRoom.state.players.some((player) => !player.isBot && player.connection === "connected")}
           onReturnLobby={hostRoom.returnLobby}
           onRematch={hostRoom.rematch}
@@ -143,16 +152,21 @@ export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
         playerId={hostRoom.state.playerId ?? undefined}
       />
       <HostRoomPanel
+        characterId={characterId}
+        onSelectCharacter={setCharacterId}
         selectedTrackId={selectedTrackId}
         onSelectTrack={setSelectedTrackId}
         onClose={() => void hostRoom.closeRoom()}
-        onCreate={(mode, hostPlays) => void hostRoom.createRoom(mode, hostPlays, selectedTrackId)}
+        onCreate={(mode, hostPlays) => void hostRoom.createRoom(mode, hostPlays, selectedTrackId, characterId)}
         onStart={hostRoom.startRace}
         state={hostRoom.state}
+        practiceActive={!multiplayerActive && cameraMode === "drive" && telemetry.race.phase === "RACING"}
       />
       {hostRoom.state.roomId && hostRoom.state.playerId !== null ?
         <KeyboardRaceControls state={hostRoom.state} sendInput={hostRoom.sendInput} useItem={hostRoom.useItem} /> : null}
-      {multiplayerActive ? <RaceAudioControls roomId={hostRoom.state.roomId} snapshot={hostRoom.state.snapshot} /> : null}
+      <RaceAudioControls roomId={hostRoom.state.roomId} snapshot={multiplayerActive ? hostRoom.state.snapshot : null}
+        playerId={hostRoom.state.playerId} trackId={trackId} runtimeRef={multiplayerActive ? undefined : runtimeRef}
+        practiceActive={!multiplayerActive && cameraMode === "drive" && telemetry.race.phase === "RACING"} />
     </div></TrackProvider>
   );
 }
@@ -167,10 +181,10 @@ export const PlayerGame = memo(function PlayerGame({ players, snapshotsRef, play
   const track = TRACK_CATALOG[trackId];
   return <TrackProvider id={trackId}><div data-track-id={trackId} className="player-game" data-testid="player-game" data-follow-player={playerId}>
     <RenderSettings initialQuality="low">{(quality) => <SceneBoundary><SceneLoading /><Canvas
-      camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: 240 }}
+      camera={{ position: [62, 65, 72], fov: 44, near: 0.1, far: sceneCameraFar(trackId) }}
       dpr={quality === "low" ? 1 : [1, 1.5]} shadows={quality === "standard"}>
       <color args={[track.sky]} attach="background" />
-      <fog args={[track.sky, 70, 165]} attach="fog" />
+      <fog args={[track.sky, ...sceneFogDistances(trackId)]} attach="fog" />
       <RenderDiagnostics /><CanvasRecovery />
       <Suspense key={trackId} fallback={null}><MultiplayerScene players={players} snapshotsRef={snapshotsRef} followPlayerId={playerId} /></Suspense>
     </Canvas></SceneBoundary>}</RenderSettings>

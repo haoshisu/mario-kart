@@ -1,3 +1,5 @@
+import { RaceResults, PersonalFinishNotice } from "./RaceResults";
+import { rematchUnavailableReason } from "../core/results/raceResults";
 import { Countdown, countdownCue } from "./Countdown";
 import type { HostRoomPhase } from "../network/useHostRoom";
 import type { RaceSnapshot } from "../network/protocol";
@@ -10,14 +12,16 @@ type MultiplayerHudProps = {
   onReturnLobby: () => void;
   onRematch: () => void;
   hasConnectedHuman: boolean;
+  playerId: string | null;
 };
 
-export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, hasConnectedHuman }: MultiplayerHudProps) {
+export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, hasConnectedHuman, playerId }: MultiplayerHudProps) {
   if (!snapshot) {
     return <div className="multiplayer-hud multiplayer-hud--loading">{roomPhase === "idle" || roomPhase === "error"
       ? "建立多人賽事房間，邀請 2～4 位玩家加入並準備。"
       : roomPhase === "creating" ? "正在建立多人房間…" : "正在連線至房間…"}</div>;
   }
+  const rematchReason = rematchUnavailableReason(snapshot.players, hasConnectedHuman);
   const ordered = [...snapshot.players].sort((left, right) => left.rank - right.rank);
   const active = snapshot.players.filter((player) => player.status !== "dnf");
   let centerX = 0;
@@ -94,26 +98,18 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
         ))}
       </ol>
       <ItemEventFeedback snapshot={snapshot} />
+      <PersonalFinishNotice snapshot={snapshot} playerId={playerId} />
       {snapshot.phase === "racing" && snapshot.finishRemaining !== null ?
         <p className="finish-deadline" role="status">首位已完賽 · 剩餘 {Math.ceil(snapshot.finishRemaining)} 秒，逾時記為 DNF</p> : null}
 
       {snapshot.phase === "finished" ? (
         <section className="multiplayer-results" data-testid="multiplayer-results">
-          <p>RACE COMPLETE</p>
-          <h2>賽事結果</h2>
-          <ol>
-            {ordered.map((player) => (
-              <li key={player.id}>
-                <strong>{player.rank}. {player.nickname}</strong>
-                <span>{player.status === "dnf" ? "DNF" : `${player.finishTime?.toFixed(2)} 秒`}</span>
-              </li>
-            ))}
-          </ol>
+          <RaceResults snapshot={snapshot} playerId={playerId} />
           <button onClick={onRematch} type="button" data-testid="rematch"
-            disabled={!hasConnectedHuman || snapshot.players.filter((player) => player.connection === "connected").length < 2 ||
-              snapshot.players.some((player) => player.connection === "reconnecting")}>
+            disabled={rematchReason !== null} aria-describedby="rematch-status">
             再玩一次
           </button>
+          <p id="rematch-status" role="status">{rematchReason ?? "再玩一次會保留本場賽道與已連線車手，直接開始倒數。"}</p>
           <button onClick={onReturnLobby} type="button">返回 Lobby</button>
         </section>
       ) : null}

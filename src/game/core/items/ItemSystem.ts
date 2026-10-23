@@ -37,9 +37,9 @@ export class ItemSystem {
   private eventId = 0;
   private trapId = 0;
 
-  constructor(seed: number, private readonly placements = { ITEM_BOXES, BOOST_PADS }, guards = GUARD_RAIL_SEGMENTS) {
+  constructor(seed: number, private readonly placements = { ITEM_BOXES, BOOST_PADS }, guards = GUARD_RAIL_SEGMENTS, heightAt?: (x: number, z: number, height: number) => number) {
     this.random = createSeededRandom(seed);
-    this.projectiles = new ProjectileSystem(guards);
+    this.projectiles = new ProjectileSystem(guards, heightAt);
   }
 
   addPlayer(id: string) { if (!this.players.has(id)) this.players.set(id, createItemState()); }
@@ -96,7 +96,7 @@ export class ItemSystem {
       // Positive sin/cos is behind a kart whose forward is (-sin(yaw), -cos(yaw)).
       const position: Point2 = [racer.position[0] + Math.sin(racer.yaw) * ITEM_CONFIG.trapDropDistance,
         racer.position[1] + Math.cos(racer.yaw) * ITEM_CONFIG.trapDropDistance];
-      this.traps.push({ id: `trap-${++this.trapId}`, ownerId: racer.id, position,
+      this.traps.push({ id: `trap-${++this.trapId}`, ownerId: racer.id, position, height: racer.height,
         armedAt: this.time + ITEM_CONFIG.trapArmSeconds, expiresAt: this.time + ITEM_CONFIG.trapLifetime });
       if (this.traps.length > ITEM_CONFIG.maximumTraps) this.traps.shift();
     }
@@ -125,7 +125,7 @@ export class ItemSystem {
       const distance = (point: Point2) => sweptDistance(point, racer.previousPosition, racer.position);
       // Combat before pickups/pads: hits cannot be undone by a same-tick pickup or pad.
       this.traps = this.traps.filter((trap) => {
-        if (trap.ownerId === racer.id || trap.armedAt > this.time || distance(trap.position) > ITEM_CONFIG.trapRadius) return true;
+        if (trap.ownerId === racer.id || trap.armedAt > this.time || (trap.height !== undefined && racer.height !== undefined && Math.abs(trap.height - racer.height) > 1.4) || distance(trap.position) > ITEM_CONFIG.trapRadius) return true;
         const outcome = receiveItemHit(state);
         this.emit(outcome === "hit" ? "hit" : "immune", racer.id, trap.ownerId,
           outcome === "shield" ? "shield" : "trap", racer.position, tick);
@@ -134,7 +134,7 @@ export class ItemSystem {
       if (state.lockRemaining > 0) continue;
       for (const box of this.placements.ITEM_BOXES) {
         if ((state.held && state.reserve) || state.cooldown > 0 || (this.boxes.get(box.id) ?? 0) > this.time ||
-          distance(box.position) > ITEM_CONFIG.pickupRadius) continue;
+          (racer.height !== undefined && Math.abs(racer.height - box.height) > 1.2) || distance(box.position) > ITEM_CONFIG.pickupRadius) continue;
         const kind = ITEM_KINDS[Math.floor(this.random() * ITEM_KINDS.length)];
         if (state.held) state.reserve = kind;
         else state.held = kind;
@@ -145,7 +145,7 @@ export class ItemSystem {
       }
       for (const pad of this.placements.BOOST_PADS) {
         const key = `${racer.id}:${pad.id}`;
-        if ((this.padCooldowns.get(key) ?? 0) > this.time || distance(pad.position) > ITEM_CONFIG.padRadius) continue;
+        if ((this.padCooldowns.get(key) ?? 0) > this.time || (racer.height !== undefined && Math.abs(racer.height - pad.height) > 1.2) || distance(pad.position) > ITEM_CONFIG.padRadius) continue;
         state.boostRemaining = Math.max(state.boostRemaining, ITEM_CONFIG.padBoostSeconds);
         this.padCooldowns.set(key, this.time + ITEM_CONFIG.padCooldown);
         this.emit("boost", racer.id, pad.id, "boost", racer.position, tick);

@@ -1,3 +1,4 @@
+import type { CharacterId } from "../entities/characters";
 import { Physics } from "@react-three/rapier";
 import type { RefObject } from "react";
 import { KART_CONFIG } from "../core/kart/kartConfig";
@@ -10,6 +11,7 @@ import { TrackColliders } from "./TrackColliders";
 import { RaceSensors } from "./RaceSensors";
 
 type PhysicsWorldProps = {
+  characterId: CharacterId;
   inputEnabled: boolean;
   inputRef: RefObject<KartInput>;
   inputReceiptRef: RefObject<InputAppliedMessage | null>;
@@ -21,6 +23,7 @@ type PhysicsWorldProps = {
 };
 
 export function PhysicsWorld({
+  characterId,
   inputEnabled,
   inputRef,
   inputReceiptRef,
@@ -35,6 +38,7 @@ export function PhysicsWorld({
       <TrackColliders />
       <RaceSensors />
       <KartBody
+        characterId={characterId}
         inputEnabled={inputEnabled}
         inputRef={inputRef}
         inputReceiptRef={inputReceiptRef}

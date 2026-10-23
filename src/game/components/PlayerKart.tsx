@@ -1,31 +1,39 @@
+import type { CharacterId } from "../entities/characters";
+import { sampleDrivingSurface } from "../track/drivingSurface";
 import { applyRampSurface } from "../core/stunts/stuntSystem";
 import { useTrack } from "../track/TrackContext";
-import { sampleTrackSurface, roadOrientation, createSurfaceResult } from "../track/trackSurface";
-import { Html } from "@react-three/drei";
+import { roadOrientation, createSurfaceResult } from "../track/trackSurface";
 import { useFrame } from "@react-three/fiber";
 import { useRef, type RefObject } from "react";
 import type { Group } from "three";
 import { KART_CONFIG, KART_WHEEL_POSITIONS } from "../core/kart/kartConfig";
+import { createKartVisualDynamics, stepKartVisualDynamics, createKartSurfaceDynamics, stepKartSurfaceDynamics } from "../assets/kartVisualDynamics";
 import { KartBodyModel, KartWheelModel } from "../assets/KartModel";
 import { PLAYER_COLOR_VALUES } from "../network/networkConfig";
 import { SnapshotBuffer } from "../network/interpolation";
 import type { PlayerColor } from "../network/networkConfig";
 import { MultiplayerKartEffects } from "./MultiplayerKartEffects";
+import { PlayerNameplate } from "./PlayerNameplate";
+import { SlipstreamEffects } from "./SlipstreamEffects";
 
 type PlayerKartProps = {
   playerId: string;
   nickname: string;
   color: PlayerColor;
+  characterId: CharacterId;
   snapshotsRef: RefObject<SnapshotBuffer>;
 };
 
-export function PlayerKart({ playerId, nickname, color, snapshotsRef }: PlayerKartProps) {
+export function PlayerKart({ playerId, nickname, color, characterId, snapshotsRef }: PlayerKartProps) {
   const track = useTrack();
   const surface = useRef(createSurfaceResult());
   const groupRef = useRef<Group>(null);
   const visualRef = useRef<Group>(null);
+  const bodyRef = useRef<Group>(null);
+  const dynamics = useRef(createKartVisualDynamics());
+  const roadDynamics = useRef(createKartSurfaceDynamics());
+  const wasAirborne = useRef(false);
   const lastImpactRef = useRef(0);
-  const shakeRef = useRef(0);
   const motionRef = useRef({ speed: 0, steer: 0, finished: false });
 
   useFrame(({ clock }, delta) => {
@@ -35,38 +43,42 @@ export function PlayerKart({ playerId, nickname, color, snapshotsRef }: PlayerKa
     if (!group || !visual || !player) {
       return;
     }
+    const resetDynamics = player.status !== "racing" ||
+      (group.position.x - player.position[0]) ** 2 + (group.position.z - player.position[2]) ** 2 > 25;
     group.position.set(...player.position);
-    applyRampSurface(player.position[0], player.position[2], track.ramps, sampleTrackSurface(player.position[0], player.position[2], track.samples, surface.current));
+    applyRampSurface(player.position[0], player.position[2], track.ramps, sampleDrivingSurface(player.position[0], player.position[2], track, surface.current, player.position[1] - .52));
     const { pitch, roll } = roadOrientation(player.yaw, surface.current);
-    group.rotation.set(player.stuntProgress > 0 ? 0 : pitch, player.yaw, player.stuntProgress > 0 ? 0 : roll, "YXZ");
+    const airborne = player.stuntProgress > 0;
+    stepKartSurfaceDynamics(roadDynamics.current, airborne ? 0 : pitch, airborne ? 0 : roll,
+      delta, resetDynamics || airborne || wasAirborne.current !== airborne);
+    wasAirborne.current = airborne;
+    group.rotation.set(roadDynamics.current.pitch, player.yaw, roadDynamics.current.roll, "YXZ");
     motionRef.current.speed = player.speed;
     motionRef.current.steer = player.steer;
     motionRef.current.finished = player.status === "finished";
-    const targetLean = -player.steer * Math.min(1, Math.abs(player.speed) / 9) *
-      (player.drifting ? 0.09 : 0.025);
-    visual.rotation.z = player.stuntProgress > 0 ? Math.PI * 2 * player.stuntProgress :
-      Math.atan2(Math.sin(visual.rotation.z), Math.cos(visual.rotation.z)) * Math.exp(-10 * Math.min(delta, .1)) +
-      targetLean * (1 - Math.exp(-10 * Math.min(delta, .1)));
-    if (player.impactRevision !== lastImpactRef.current) {
-      lastImpactRef.current = player.impactRevision;
-      shakeRef.current = 1;
+    const impact = player.impactRevision !== lastImpactRef.current ? 1 : 0;
+    lastImpactRef.current = player.impactRevision;
+    stepKartVisualDynamics(dynamics.current, player.speed, player.steer, player.drifting,
+      player.stuntProgress > 0, impact, delta, resetDynamics);
+    visual.rotation.z = player.stuntProgress > 0 ? Math.PI * 2 * player.stuntProgress : 0;
+    const body = bodyRef.current;
+    if (body) {
+      body.rotation.set(dynamics.current.pitch, 0, dynamics.current.roll);
+      body.position.y = dynamics.current.sink;
     }
-    shakeRef.current = Math.max(0, shakeRef.current - delta * 4.5);
-    visual.rotation.x = Math.sin(clock.elapsedTime * 46) * shakeRef.current * 0.05;
   });
 
   return (
     <group ref={groupRef}>
       <group scale={KART_CONFIG.modelScale} position={[0, -0.43 * (1 - KART_CONFIG.modelScale), 0]}>
       <group ref={visualRef}>
-        <KartBodyModel color={PLAYER_COLOR_VALUES[color]} motionRef={motionRef} />
+        <group ref={bodyRef}><KartBodyModel characterId={characterId} color={PLAYER_COLOR_VALUES[color]} motionRef={motionRef} /></group>
       {KART_WHEEL_POSITIONS.map((position, index) => <KartWheelModel key={index} position={position} motionRef={motionRef} />)}
       </group>
       <MultiplayerKartEffects playerId={playerId} snapshotsRef={snapshotsRef} />
+      <SlipstreamEffects playerId={playerId} snapshotsRef={snapshotsRef} />
       </group>
-      <Html center position={[0, 1.45, 0]} zIndexRange={[2, 1]} style={{ pointerEvents: "none" }}>
-        <span className="player-nameplate">{nickname}</span>
-      </Html>
+      <PlayerNameplate nickname={nickname} />
     </group>
   );
 }

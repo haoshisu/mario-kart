@@ -1,3 +1,4 @@
+import { KART_START } from "../kart/kartConfig";
 import { getMarkerCrossingDirection } from "./checkpointSystem";
 import { applyMarkerCrossing } from "./lapSystem";
 import { calculateRaceProgress, projectOntoRaceRoute } from "./progressSystem";
@@ -30,8 +31,8 @@ export function restartRace() {
   return startRace(createInitialRaceState());
 }
 
-function updateProgress(state: RaceState, position: readonly [number, number], track = DEFAULT_RACE_TRACK) {
-  const projection = projectOntoRaceRoute(position, track);
+function updateProgress(state: RaceState, position: readonly [number, number], track = DEFAULT_RACE_TRACK, height?: number) {
+  const projection = projectOntoRaceRoute(position, track, height);
   return {
     state: {
       ...state,
@@ -59,7 +60,7 @@ export function stepRace(
   const events: RaceEvent[] = [];
 
   if (state.phase === "IDLE" || state.phase === "FINISHED") {
-    const progress = updateProgress({ ...state, previousPosition: position }, position, track);
+    const progress = updateProgress({ ...state, previousPosition: position }, position, track, input.position[1] - KART_START.position[1]);
     return { state: progress.state, events, respawn: null };
   }
 
@@ -73,7 +74,7 @@ export function stepRace(
         events.push({ type: "RACE_STARTED" });
       }
     }
-    const progress = updateProgress(state, position, track);
+    const progress = updateProgress(state, position, track, input.position[1] - KART_START.position[1]);
     return { state: progress.state, events, respawn: null };
   }
 
@@ -83,7 +84,7 @@ export function stepRace(
     goDisplayRemaining: Math.max(0, state.goDisplayRemaining - dt),
   };
 
-  const progressUpdate = updateProgress(state, position, track);
+  const progressUpdate = updateProgress(state, position, track, input.position[1] - KART_START.position[1]);
   state = progressUpdate.state;
   const respawnEvaluation = evaluateRespawn(
     state.respawn,
@@ -111,6 +112,7 @@ export function stepRace(
   const canTriggerMarkers = state.respawn.protectionRemaining <= 0;
   if (previous && canTriggerMarkers) {
     for (const marker of track.RACE_MARKERS) {
+      if (Math.abs(input.position[1] - marker.respawn.position[1]) > 5.5) continue;
       const direction = getMarkerCrossingDirection(marker, previous, position);
       if (!direction) {
         continue;

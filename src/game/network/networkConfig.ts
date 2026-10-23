@@ -1,5 +1,5 @@
 export const NETWORK_CONFIG = {
-  protocolVersion: 10,
+  protocolVersion: 23,
   roomType: "race",
   serverPort: 2567,
   minimumPlayers: 2,
@@ -30,10 +30,21 @@ export const NETWORK_CONFIG = {
     laneSpacing: 1.65,
   },
   collision: {
-    colliderHalfWidth: 0.58,
+    // Include the visible Kestrel tyres (0.72 centre + 0.158 half-width).
+    // Rapier adds the 0.12 rounded border to this base half-width.
+    colliderHalfWidth: 0.76,
+    roadColliderHalfWidth: 0.58,
+    groups: { roadKart: 0x00010002, road: 0x00020001, kartContact: 0x00040004 },
     heavyImpactSpeed: 8,
-    speedRetention: 0.56,
-    heavySpeedRetention: 0.32,
+    // Dampen the sliding tangent, not the velocity that separates two karts.
+    speedRetention: 0.94,
+    heavySpeedRetention: 0.88,
+    minimumClosingSpeed: 0.7,
+    restitution: 0.45,
+    minimumSeparationSpeed: 4.4,
+    restingSeparationSpeed: 1.2,
+    maximumSeparationSpeed: 8,
+    reboundSeconds: 0.3,
     eventCooldownSeconds: 0.35,
   },
 } as const;

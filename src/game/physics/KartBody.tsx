@@ -1,8 +1,11 @@
-import { createSurfaceResult, sampleTrackSurface } from "../track/trackSurface";
-import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, STUNT_CONFIG } from "../core/stunts/stuntSystem";
+import type { CharacterId } from "../entities/characters";
+import { courseHandling } from "../track/courseDesign";
+import { sampleDrivingSurface } from "../track/drivingSurface";
+import { createSurfaceResult } from "../track/trackSurface";
+import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, updateStuntTrick, STUNT_CONFIG } from "../core/stunts/stuntSystem";
 import { ITEM_CONFIG } from "../core/items/itemConfig";
 import { roadQuaternion } from "../track/trackSurface";
-import { useTrack } from "../track/TrackContext";
+import { useTrack, useTrackRuntimeRef } from "../track/TrackContext";
 import {
   RoundCuboidCollider,
   RigidBody,
@@ -16,6 +19,7 @@ import { Quaternion, Vector3 } from "three";
 import { Kart } from "../components/Kart";
 import { resolveWallCollision } from "../core/collision/collisionSystem";
 import { KART_CONFIG, KART_START } from "../core/kart/kartConfig";
+import { getDriftSteering } from "../core/kart/driftSystem";
 import {
   applyLaunchBoost,
   createInitialKartState,
@@ -39,6 +43,7 @@ import { createRaceTelemetry, type RaceCommands } from "../runtime/raceRuntime";
 import { useKartGrounding } from "./useKartGrounding";
 
 type KartBodyProps = {
+  characterId: CharacterId;
   inputEnabled: boolean;
   inputRef: RefObject<KartInput>;
   inputReceiptRef: RefObject<InputAppliedMessage | null>;
@@ -52,6 +57,7 @@ type KartBodyProps = {
 const UP_AXIS = new Vector3(0, 1, 0);
 
 export function KartBody({
+  characterId,
   inputEnabled,
   inputRef,
   inputReceiptRef,
@@ -61,9 +67,9 @@ export function KartBody({
   onInputApplied,
   onTelemetry,
 }: KartBodyProps) {
-  const track = useTrack();
-  const padCooldown = useRef(0);
-  const stunt = useRef(createStuntState());
+  const track = useTrack(), trackRuntimeRef = useTrackRuntimeRef();
+  const padCooldown = useRef(new Map<string, number>());
+  const stunt = useRef(createStuntState(track.id === "taipei"));
   const roadSurface = useRef(createSurfaceResult());
   const groundKart = useKartGrounding();
   const bodyRef = useRef<RapierRigidBody>(null);
@@ -85,7 +91,7 @@ export function KartBody({
     position: readonly [number, number, number],
     yaw: number,
   ) => {
-    stunt.current = createStuntState();
+    stunt.current = createStuntState(track.id === "taipei");
     simulationRef.current = createInitialKartState(yaw);
     rotationRef.current.setFromAxisAngle(UP_AXIS, yaw);
     body.setTranslation({ x: position[0], y: position[1], z: position[2] }, true);
@@ -112,13 +118,14 @@ export function KartBody({
       runtime.turboTier = 0;
       runtime.collisionShake = 0;
     }
-  }, [runtimeRef]);
+  }, [runtimeRef, track.id]);
 
   useEffect(() => {
     raceStateRef.current = startRace(raceStateRef.current).state;
     onReady();
   }, [onReady]);
 
+  const courseSurface = useRef(createSurfaceResult());
   useBeforePhysicsStep(() => {
     const body = bodyRef.current;
     const input = inputRef.current;
@@ -131,7 +138,7 @@ export function KartBody({
 
     if (commands.restartRequested) {
       commands.restartRequested = false;
-      padCooldown.current = 0;
+      padCooldown.current.clear();
       commands.syntheticCrossingsRequested = 0;
       commands.forcedRespawnRequested = false;
       raceStateRef.current = restartRace().state;
@@ -152,18 +159,29 @@ export function KartBody({
       simulationRef.current = createInitialKartState(simulationRef.current.yaw);
     }
 
-    padCooldown.current = Math.max(0, padCooldown.current - KART_CONFIG.fixedTimeStep);
-    if (canDrive && padCooldown.current === 0) {
+    if (canDrive) {
       const position = body.translation();
-      if (track.items.BOOST_PADS.some(pad => Math.hypot(position.x - pad.position[0], position.z - pad.position[1]) < ITEM_CONFIG.padRadius)) {
-        simulationRef.current = { ...simulationRef.current, drift: { ...simulationRef.current.drift, turboTier: 2, turboRemaining: ITEM_CONFIG.padBoostSeconds } };
-        padCooldown.current = ITEM_CONFIG.padCooldown;
+      for (const pad of track.items.BOOST_PADS) {
+        if ((padCooldown.current.get(pad.id) ?? 0) > simulationTimeRef.current ||
+          Math.abs(position.y - KART_START.position[1] - pad.height) > 1.2 ||
+          Math.hypot(position.x - pad.position[0], position.z - pad.position[1]) >= ITEM_CONFIG.padRadius) continue;
+        const drift = simulationRef.current.drift;
+        simulationRef.current = { ...simulationRef.current, drift: { ...drift,
+          turboTier: drift.turboTier === 3 ? 3 : 2,
+          turboRemaining: Math.max(drift.turboRemaining, ITEM_CONFIG.padBoostSeconds) } };
+        padCooldown.current.set(pad.id, simulationTimeRef.current + ITEM_CONFIG.padCooldown);
       }
     }
+    const coursePosition = body.translation();
+    const road = sampleDrivingSurface(coursePosition.x, coursePosition.z, track, courseSurface.current, coursePosition.y - KART_START.position[1], trackRuntimeRef.current.bridge?.locked);
+    const handling = courseHandling(track.id, road, canDrive && !stunt.current.active && Math.abs(coursePosition.y - road.height - KART_START.position[1]) < .8, simulationRef.current.yaw, trackRuntimeRef.current.seconds);
+    updateStuntTrick(stunt.current, effectiveInput.drift, canDrive, KART_CONFIG.fixedTimeStep);
+    if (stunt.current.active) simulationRef.current = { ...simulationRef.current, drift: { ...simulationRef.current.drift, active:false, direction:0, charge:0, chargeTier:0 } };
     const step = stepKartSimulation(
       simulationRef.current,
       stunt.current.active ? { ...effectiveInput, drift: false, steer: effectiveInput.steer * STUNT_CONFIG.airSteering } : effectiveInput,
       KART_CONFIG.fixedTimeStep,
+      undefined, handling,
     );
     simulationRef.current = step.state;
     simulationTimeRef.current += KART_CONFIG.fixedTimeStep;
@@ -181,9 +199,10 @@ export function KartBody({
     const retainedLateralSpeed = rebounding ? lateralSpeed * Math.exp(-3 * KART_CONFIG.fixedTimeStep) : getKartLateralSpeed(
       lateralSpeed,
       step.state.speed,
-      effectiveInput.steer,
+      getDriftSteering(step.state.drift, effectiveInput.steer),
       step.state.drift.active,
       KART_CONFIG.fixedTimeStep,
+      handling,
     );
 
     rotationRef.current.setFromAxisAngle(UP_AXIS, step.state.yaw);
@@ -195,7 +214,7 @@ export function KartBody({
 
     const command = velocityCommandRef.current;
     command.x = forward.x * step.state.speed + rightX * retainedLateralSpeed;
-    command.y = launched ? STUNT_CONFIG.launchSpeed : currentVelocity.y;
+    command.y = launched ? stunt.current.launchSpeed : currentVelocity.y;
     command.z = forward.z * step.state.speed + rightZ * retainedLateralSpeed;
     if (surface) command.y = command.x * surface.gradientX + command.z * surface.gradientZ;
     body.setLinvel(command, true);
@@ -205,6 +224,7 @@ export function KartBody({
     runtime.speed = step.state.speed;
     runtime.steer = effectiveInput.steer;
     runtime.drifting = step.state.drift.active;
+    runtime.trackSeconds = trackRuntimeRef.current.seconds;
     runtime.driftCharge = step.state.drift.charge;
     runtime.driftTier = step.state.drift.chargeTier;
     runtime.turboRemaining = step.state.drift.turboRemaining;
@@ -236,11 +256,11 @@ export function KartBody({
     if (stepStuntLaunch(stunt.current, point.x, point.y, point.z, simulationRef.current.yaw,
       simulationRef.current.speed, track.ramps, inputEnabled && raceStateRef.current.phase === "RACING", 0)) {
       const velocity = body.linvel();
-      body.setLinvel({ x: velocity.x, y: STUNT_CONFIG.launchSpeed, z: velocity.z }, true);
+      body.setLinvel({ x: velocity.x, y: stunt.current.launchSpeed, z: velocity.z }, true);
     }
-    const road = sampleTrackSurface(point.x, point.z, track.samples, roadSurface.current);
+    const road = sampleDrivingSurface(point.x, point.z, track, roadSurface.current, point.y - KART_START.position[1]);
     if (finishStunt(stunt.current, point.y - road.height - KART_START.position[1], body.linvel().y, road.distance)) {
-      simulationRef.current = applyStuntBoost(simulationRef.current);
+      if (stunt.current.trickSucceeded) simulationRef.current = applyStuntBoost(simulationRef.current);
     }
     if (!stunt.current.active) groundKart(body);
     runtime.stuntProgress = stuntProgress(stunt.current);
@@ -281,7 +301,8 @@ export function KartBody({
         { ...raceStateRef.current, previousPosition: segment.previous },
         {
           ...raceInput,
-          position: [segment.current[0], translation.y, segment.current[1]],
+          // E2E crossings must use the marker's road level on elevated courses.
+          position: [segment.current[0], marker.respawn.position[1], segment.current[1]],
         },
         KART_CONFIG.fixedTimeStep,
         track.race,
@@ -405,11 +426,11 @@ export function KartBody({
       <RoundCuboidCollider
         args={[0.62 * KART_CONFIG.modelScale, 0.19, 0.90 * KART_CONFIG.modelScale, 0.06]}
         friction={0}
-        position={[0, -0.18, 0]}
+        position={[0, -0.18 + KART_CONFIG.grounding.colliderLift, 0]}
         name="kart-body"
         restitution={0}
       />
-      <Kart runtimeRef={runtimeRef} />
+      <Kart characterId={characterId} runtimeRef={runtimeRef} />
     </RigidBody>
   );
 }

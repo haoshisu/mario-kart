@@ -10,4 +10,6 @@ export const BOT_CONFIG = {
   obstacleLookAhead: 8,
   passingLane: 1.7,
   passingClearance: 1.8,
+  draft: { passingOffset: 1.8, edgeClearance: 1 },
+  drift: { enterSteer: .55, exitSteer: .18, minimumSpeed: 9, maximumError: .7, chargeSteer: .3, releaseMargin: .1 },
 } as const;

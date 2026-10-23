@@ -87,7 +87,7 @@ describe("RaceRoom", () => {
 
   it.each(["solo-keyboard", "solo-phone"] as const)("restricts %s to one human, owns input and cleans up the host", async (mode) => {
     const client = new Client(endpoint);
-    const host = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, mode });
+    const host = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, mode, characterId: "lumi" });
     host.onMessage("*", () => undefined);
     let phone: Room | undefined;
     try {
@@ -99,6 +99,8 @@ describe("RaceRoom", () => {
       host.send(ROOM_MESSAGE.requestStatus);
       const status = await statusPromise;
       expect(status.mode).toBe(mode);
+      expect(new Set(status.players.map(player => player.characterId)).size).toBe(4);
+      expect(status.players.find(player => !player.isBot)?.characterId).toBe(mode === "solo-keyboard" ? "lumi" : "dodo");
       expect(status.players.filter((player) => player.isBot)).toHaveLength(3);
       expect(status.players.filter((player) => !player.isBot)).toHaveLength(1);
       expect(status.canStart).toBe(mode === "solo-keyboard");
@@ -120,6 +122,25 @@ describe("RaceRoom", () => {
       expect((await countdown).players).toHaveLength(4);
     } finally { await Promise.all([host.leave(), phone?.leave()]); }
     await expect(client.joinById(host.roomId, playerOptions(0))).rejects.toBeTruthy();
+  });
+
+  it("broadcasts independent character choices in lobby and snapshots and rejects unknown IDs", async () => {
+    const client = new Client(endpoint);
+    const host = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, hostPlays: true, characterId: "bibo" });
+    host.onMessage("*", () => undefined);
+    let phone: Room | undefined;
+    try {
+      await expect(client.joinById(host.roomId, { ...playerOptions(1), characterId: "unknown" })).rejects.toBeTruthy();
+      phone = await client.joinById(host.roomId, { ...playerOptions(1), characterId: "lili" });
+      phone.onMessage("*", () => undefined);
+      const status = nextMessage<RoomStatusMessage>(host, ROOM_MESSAGE.roomStatus);
+      const snapshot = nextMessage<RaceSnapshot>(host, ROOM_MESSAGE.snapshot);
+      host.send(ROOM_MESSAGE.requestStatus);
+      // Snapshot order follows ranking, not join order; verify identity-to-character bindings.
+      const expectedCharacters = { [host.sessionId]: "bibo", [phone.sessionId]: "lili" };
+      expect(Object.fromEntries((await status).players.map(player => [player.id, player.characterId]))).toEqual(expectedCharacters);
+      expect(Object.fromEntries((await snapshot).players.map(player => [player.id, player.characterId]))).toEqual(expectedCharacters);
+    } finally { await phone?.leave(); await host.leave(); }
   });
 
   it("counts a playing host in the four seats and accepts only owned driver input", async () => {

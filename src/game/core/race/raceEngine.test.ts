@@ -28,10 +28,10 @@ function cross(state: RaceState, marker: RaceMarker, direction: "forward" | "rev
   const segment = createMarkerCrossingSegment(marker, direction);
   const before = stepRace(
     { ...state, previousPosition: segment.previous },
-    frame(segment.previous),
+    frame(segment.previous, { position: [segment.previous[0], marker.respawn.position[1], segment.previous[1]] }),
     DT,
   ).state;
-  return stepRace(before, frame(segment.current), DT);
+  return stepRace(before, frame(segment.current, { position: [segment.current[0], marker.respawn.position[1], segment.current[1]] }), DT);
 }
 
 describe("raceEngine", () => {

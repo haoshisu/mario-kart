@@ -1,6 +1,7 @@
 import { createStuntState } from "../../src/game/core/stunts/stuntSystem";
 import { describe, expect, it } from "vitest";
 import { createInitialKartState } from "../../src/game/core/kart/kartPhysics";
+import { createSlipstreamState } from "../../src/game/core/kart/slipstreamSystem";
 import { createInitialRaceState } from "../../src/game/core/race/raceEngine";
 import type { ServerPlayerState } from "../state/roomState";
 import { rankPlayers } from "./RankingSystem";
@@ -11,9 +12,11 @@ function racer(id: string, status: ServerPlayerState["status"], score: number, f
     id,
     nickname: id,
     color: "coral",
+    characterId: "dodo",
     connection: "connected",
     status,
     stunt: createStuntState(), kart: createInitialKartState(),
+    slipstream: createSlipstreamState(),
     race: {
       ...race,
       finishTime,

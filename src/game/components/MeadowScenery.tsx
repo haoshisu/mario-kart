@@ -1,6 +1,6 @@
 import { surfaceOffsetHeight } from "../track/trackSurface";
 import { Instance, Instances } from "@react-three/drei";
-import { pointAtTrackOffset } from "../track/trackPath";
+import { distanceToTrack, pointAtTrackOffset } from "../track/trackPath";
 import { TRACK_CONFIG } from "../track/trackConfig";
 import { useTrack } from "../track/TrackContext";
 import { useMemo } from "react";
@@ -9,11 +9,13 @@ const HILLS = [[-55, 32, 7], [54, 35, 8], [-40, -28, 7], [32, -28, 8]] as const;
 /** All props remain beyond the guardrails; existing collision geometry is unchanged. */
 export function MeadowScenery({ themed = false }: { themed?: boolean }) {
   const { samples: TRACK_SAMPLES, race: { FINISH_MARKER }, accent } = useTrack();
+  const hills = HILLS.filter(([x, z, size]) => distanceToTrack(x, z, TRACK_SAMPLES) > size + 5);
   const SIGNS = useMemo(() => TRACK_SAMPLES.flatMap((sample, index) => {
     if (index % 12 !== 0) return [];
-    const ahead = TRACK_SAMPLES[(index + 6) % TRACK_SAMPLES.length];
+    // Warn before entering the bend, rather than placing every arrow at its apex.
+    const ahead = TRACK_SAMPLES[(index + 24) % TRACK_SAMPLES.length];
     const turn = sample.tangent[0] * ahead.tangent[1] - sample.tangent[1] * ahead.tangent[0];
-    if (Math.abs(turn) < .2) return [];
+    if (Math.abs(turn) < .45) return [];
     const side = Math.sign(turn);
     const [x, z] = pointAtTrackOffset(sample, -side * (TRACK_CONFIG.roadWidth / 2 + 1.6));
     return [{ x, z, height: surfaceOffsetHeight(sample, -side * (TRACK_CONFIG.roadWidth / 2 + 1.6)), yaw: Math.atan2(-sample.tangent[0], -sample.tangent[1]), side }];
@@ -21,10 +23,10 @@ export function MeadowScenery({ themed = false }: { themed?: boolean }) {
 
 
   return <group>
-    {!themed ? <Instances limit={HILLS.length} frames={1}>
+    {!themed ? <Instances limit={hills.length} frames={1}>
       <sphereGeometry args={[1, 20, 12]} />
       <meshStandardMaterial color="#71c944" roughness={1} />
-      {HILLS.map(([x, z, size]) => <Instance key={`${x}`} position={[x, -2, z]} scale={[size, size * .75, size]} />)}
+      {hills.map(([x, z, size]) => <Instance key={`${x}`} position={[x, -2, z]} scale={[size, size * .75, size]} />)}
     </Instances> : null}
     <Instances frames={1} limit={12} castShadow>
       <boxGeometry /><meshStandardMaterial roughness={.65} />

@@ -1,18 +1,22 @@
+import { characterModelUrl, type CharacterId } from "../entities/characters";
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { AnimationMixer, Mesh, MeshStandardMaterial, type Group } from "three";
+import { createWheelVisualDynamics, stepWheelVisualDynamics } from "./kartVisualDynamics";
 import { KART_CONFIG } from "../core/kart/kartConfig";
+import { useRenderQuality } from "../rendering/RenderSettings";
 
 export type KartVisualMotion = { speed: number; steer: number; finished?: boolean };
-const BODY_URL = "/models/pulse-kart-v1.glb";
-const WHEEL_URL = "/models/pulse-wheel-v1.glb";
+const WHEEL_URL = "/models/kestrel-wheel-v1.glb";
 
-export function KartBodyModel({ color, motionRef }: {
+export function KartBodyModel({ color, characterId, motionRef }: {
   color: string;
+  characterId: CharacterId;
   motionRef: RefObject<KartVisualMotion>;
 }) {
-  const { scene, animations } = useGLTF(BODY_URL, "/draco/");
+  const quality = useRenderQuality();
+  const { scene, animations } = useGLTF(characterModelUrl(characterId, quality === "low"), "/draco/");
   const model = useMemo(() => {
     const root = scene.clone(true);
     const paint = new Map<MeshStandardMaterial, MeshStandardMaterial>();
@@ -35,10 +39,13 @@ export function KartBodyModel({ color, motionRef }: {
   }, [scene, color]);
   const mixer = useMemo(() => new AnimationMixer(model.root), [model]);
   const playing = useRef(false);
-  useEffect(() => () => {
-    mixer.stopAllAction();
-    mixer.uncacheRoot(model.root);
-    model.materials.forEach((material) => material.dispose());
+  useEffect(() => {
+    playing.current = false;
+    return () => {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(model.root);
+      model.materials.forEach((material) => material.dispose());
+    };
   }, [model, mixer]);
   useFrame((_, delta) => {
     const finished = motionRef.current.finished === true;
@@ -64,9 +71,19 @@ export function KartWheelModel({ position, motionRef }: {
   }, [scene]);
   const steerRef = useRef<Group>(null);
   const spinRef = useRef<Group>(null);
+  const dynamics = useRef(createWheelVisualDynamics());
   useFrame((_, delta) => {
-    if (spinRef.current) spinRef.current.rotation.x = (spinRef.current.rotation.x - motionRef.current.speed * Math.min(delta, 0.1) / KART_CONFIG.wheels.radius) % (Math.PI * 2);
-    if (steerRef.current && position[2] < 0) steerRef.current.rotation.y = -motionRef.current.steer * 0.35;
+    stepWheelVisualDynamics(dynamics.current, motionRef.current.speed, motionRef.current.steer,
+      KART_CONFIG.wheels.radius * KART_CONFIG.modelScale, delta);
+    if (spinRef.current) spinRef.current.rotation.x = dynamics.current.spin;
+    if (steerRef.current && position[2] < 0) steerRef.current.rotation.y = dynamics.current.steering;
   });
-  return <group position={position} ref={steerRef}><group ref={spinRef}><primitive object={root} dispose={null} /></group></group>;
+  return <group position={position} ref={steerRef}>
+    <mesh position={[0, -.288, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[.74, .74]} />
+      <shaderMaterial transparent depthWrite={false}
+        vertexShader="varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}"
+        fragmentShader="varying vec2 vUv; void main(){float r=length((vUv-.5)*2.0);gl_FragColor=vec4(0.0,0.0,0.0,.22*(1.0-smoothstep(.15,1.0,r)));}" />
+    </mesh>
+    <group ref={spinRef}><primitive object={root} dispose={null} /></group></group>;
 }

@@ -1,6 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import * as CollisionSystem from "./CollisionSystem";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createMarkerCrossingSegment } from "../../src/game/core/race/checkpointSystem";
 import { CHECKPOINTS, FINISH_MARKER, type RaceMarker } from "../../src/game/core/race/raceTrack";
 import { NETWORK_CONFIG, PLAYER_COLORS } from "../../src/game/network/networkConfig";
@@ -66,7 +65,7 @@ describe("SimulationSystem", () => {
         simulation.step(now += FIXED_MILLISECONDS);
       }
       const box = ITEM_BOXES[1];
-      simulation.resetPlayerPose("driver", [box.position[0], KART_START.position[1], box.position[1]], box.yaw);
+      simulation.resetPlayerPose("driver", [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
       simulation.step(now += FIXED_MILLISECONDS);
       const picked = simulation.getSnapshot(now).players[0].item;
       expect(picked.held).toBe("boost");
@@ -94,7 +93,7 @@ describe("SimulationSystem", () => {
       let now = 1000;
       while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
       const box = ITEM_BOXES[0];
-      simulation.resetPlayerPose("owner", [box.position[0], KART_START.position[1], box.position[1]], box.yaw);
+      simulation.resetPlayerPose("owner", [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
       simulation.step(now += FIXED_MILLISECONDS);
       const held = simulation.getSnapshot(now).players.find((player) => player.id === "owner")!.item;
       expect(held.held).toBe(kind);
@@ -123,7 +122,7 @@ describe("SimulationSystem", () => {
       let now = 1000;
       while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
       const box = ITEM_BOXES[1];
-      simulation.resetPlayerPose("owner", [box.position[0], KART_START.position[1], box.position[1]], box.yaw);
+      simulation.resetPlayerPose("owner", [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
       simulation.step(now += FIXED_MILLISECONDS);
       const owner = simulation.getSnapshot(now).players.find((player) => player.id === "owner");
       expect(owner?.item.held).toBe("trap");
@@ -131,13 +130,13 @@ describe("SimulationSystem", () => {
       const trap = simulation.getSnapshot(now).items.traps[0];
       if (scenario === "shield") {
         const shieldBox = ITEM_BOXES[5];
-        simulation.resetPlayerPose("victim", [shieldBox.position[0], KART_START.position[1], shieldBox.position[1]], shieldBox.yaw);
+        simulation.resetPlayerPose("victim", [shieldBox.position[0], shieldBox.height + KART_START.position[1], shieldBox.position[1]], shieldBox.yaw);
         simulation.step(now += FIXED_MILLISECONDS);
         const victim = simulation.getSnapshot(now).players.find((player) => player.id === "victim");
         expect(victim?.item.held).toBe("shield");
         expect(simulation.useItem("victim", victim?.item.revision ?? -1)).toBe(true);
       }
-      simulation.resetPlayerPose("victim", [trap.position[0], KART_START.position[1], trap.position[1]], 0);
+      simulation.resetPlayerPose("victim", [trap.position[0], (trap.height ?? 0) + KART_START.position[1], trap.position[1]], 0);
       if (scenario === "disconnect") simulation.setConnection("owner", "reconnecting");
       for (let tick = 0; tick < 35; tick += 1) simulation.step(now += FIXED_MILLISECONDS);
       const snapshot = simulation.getSnapshot(now);
@@ -158,43 +157,65 @@ describe("SimulationSystem", () => {
     } finally { simulation.dispose(); }
   });
 
-  it("retains collision damping when the resolved velocity is synchronized", () => {
-    const simulation = new SimulationSystem();
-    const response = vi.spyOn(CollisionSystem, "getCollisionResponse")
-      .mockReturnValue({ speedRetention: 0 });
+  for (const scenario of ["head-on", "rear-end", "side-swipe"] as const) {
+    it(`separates a real ${scenario} contact while both drivers keep their inputs`, () => {
+      const simulation = new SimulationSystem(1);
+      try {
+        simulation.addPlayer("first", "First", "coral");
+        simulation.addPlayer("second", "Second", "sun");
+        simulation.start();
+        let now = 1000;
+        while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
+        const sideways = scenario === "side-swipe";
+        simulation.resetPlayerPose("first", [-8, KART_START.position[1], -10.5 - (sideways ? 1.6 : 0)], -Math.PI / 2 - (sideways ? .35 : 0));
+        simulation.resetPlayerPose("second", [sideways ? -8 : 2, KART_START.position[1], -10.5 + (sideways ? 1.6 : 0)], scenario === "head-on" ? Math.PI / 2 : -Math.PI / 2 + (sideways ? .35 : 0));
+        let collidedAt = -1, separationAtContact = 0, maximumSeparation = 0;
+        let secondX = 0;
+        for (let tick = 0; tick < 180; tick++) {
+          now += FIXED_MILLISECONDS;
+          if (tick % 3 === 0) for (const id of ["first", "second"]) {
+            simulation.input.receive(id, { sequence: tick, sentAt: now,
+              input: { throttle: scenario === "rear-end" && id === "second" ? 0 : 1, brake: 0, steer: 0, drift: false } }, now);
+          }
+          simulation.step(now);
+          const players = simulation.getSnapshot(now).players;
+          const first = players.find(p => p.id === "first")!, second = players.find(p => p.id === "second")!;
+          const separation = sideways ? Math.abs(second.position[2] - first.position[2]) : second.position[0] - first.position[0];
+          if (collidedAt < 0 && first.impactRevision > 0 && first.impactKind === "kart") {
+            collidedAt = tick; separationAtContact = separation; secondX = second.position[0];
+          }
+          if (collidedAt >= 0) {
+            maximumSeparation = Math.max(maximumSeparation, separation);
+            expect(players.every(player => player.spinOutRemaining === 0 && player.item.immunityRemaining === 0)).toBe(true);
+            if (scenario === "rear-end" && tick === collidedAt + 12) expect(second.position[0] - secondX).toBeGreaterThan(.3);
+            if (tick === collidedAt + 12) break;
+          }
+        }
+        expect(collidedAt).toBeGreaterThanOrEqual(0);
+        expect(maximumSeparation - separationAtContact).toBeGreaterThan(.12);
+      } finally { simulation.dispose(); }
+    });
+  }
+
+  it("clears a four-kart resting pileup and resumes forward driving", () => {
+    const simulation = new SimulationSystem(1);
     try {
-      simulation.addPlayer("driver", "Driver", "coral");
-      simulation.addPlayer("other", "Other", "sun");
+      for (let i = 0; i < 4; i++) simulation.addPlayer(`p${i}`, `Player ${i}`, PLAYER_COLORS[i]);
       simulation.start();
-      let collided = false;
-      for (let tick = 0; tick < 900; tick += 1) {
-        const now = 1000 + tick * FIXED_MILLISECONDS;
-        if (tick % 3 === 0) {
-          simulation.input.receive("driver", {
-            sequence: tick,
-            sentAt: now,
-            input: { throttle: 1, brake: 0, steer: 1, drift: false },
-          }, now);
-          simulation.input.receive("other", {
-            sequence: tick,
-            sentAt: now,
-            input: { throttle: 1, brake: 0, steer: -1, drift: false },
-          }, now);
-        }
+      let now = 1000;
+      while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
+      for (let i = 0; i < 4; i++) simulation.resetPlayerPose(`p${i}`, [-18, KART_START.position[1], -11.4 + i * .6], -Math.PI / 2);
+      for (let tick = 0; tick < 120; tick++) {
+        now += FIXED_MILLISECONDS;
+        if (tick % 3 === 0) for (let i = 0; i < 4; i++) simulation.input.receive(`p${i}`, {
+          sequence: tick, sentAt: now, input: { throttle: 1, brake: 0, steer: 0, drift: false },
+        }, now);
         simulation.step(now);
-        const player = simulation.getSnapshot(now).players.find((entry) => entry.impactRevision > 0);
-        if (player) {
-          expect(player.speed).toBeCloseTo(0, 8);
-          collided = true;
-          break;
-        }
       }
-      expect(collided).toBe(true);
-      expect(response).toHaveBeenCalled();
-    } finally {
-      response.mockRestore();
-      simulation.dispose();
-    }
+      const players = [...simulation.getSnapshot(now).players].sort((a, b) => a.position[2] - b.position[2]);
+      expect(players.every(player => player.speed > 15 && player.position[0] > -3 && player.spinOutRemaining === 0)).toBe(true);
+      for (let i = 1; i < players.length; i++) expect(players[i].position[2] - players[i - 1].position[2]).toBeGreaterThan(1.2);
+    } finally { simulation.dispose(); }
   });
 
   it("preserves snapshot sequence after a long lobby and another race", () => {

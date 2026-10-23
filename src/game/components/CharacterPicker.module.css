@@ -1,0 +1,10 @@
+.picker { border: 0; padding: 0; margin: .6rem 0; min-width: 0; width: 100%; }
+.picker legend { font-size: .85rem; font-weight: 700; margin-bottom: .35rem; }
+.options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; }
+.picker .options button { display: flex; flex-direction: column; align-items: center; padding: .2rem; border: 2px solid transparent; border-radius: .75rem; background: #17313d; color: #f7f5eb; min-width: 0; cursor: pointer; }
+.picker .options button[aria-pressed="true"] { background: #294754; }
+.picker .options button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.picker .options button:disabled { opacity: .55; cursor: wait; }
+.options strong { font-size: .78rem; line-height: 1.6; }
+.portrait { display: block; width: 100%; aspect-ratio: 1; background-position: center; background-size: cover; border-radius: .5rem; }
+.picker p { font-size: .7rem; margin: .35rem 0 0; opacity: .8; }

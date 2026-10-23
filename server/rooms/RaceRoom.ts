@@ -1,3 +1,4 @@
+import { CHARACTER_IDS, DEFAULT_CHARACTER, type CharacterId } from "../../src/game/entities/characters";
 import { isTrackId } from "../../src/game/track/trackCatalog";
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { NETWORK_CONFIG, PLAYER_COLORS, type PlayerColor } from "../../src/game/network/networkConfig";
@@ -32,6 +33,7 @@ type LobbyEntry = {
   sessionId: string;
   nickname: string;
   color: PlayerColor;
+  characterId: CharacterId;
   ready: boolean;
   isBot: boolean;
 };
@@ -154,6 +156,7 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
 
   onJoin(client: RaceClient, options: RoomJoinOptions) {
     logOperation("joined");
+    const characterId = options.characterId ?? DEFAULT_CHARACTER;
     client.userData = {
       role: options.role,
       playerId: options.role === "controller" ? client.sessionId : null,
@@ -166,8 +169,8 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
       this.mode = options.mode ?? "multiplayer";
       if (this.mode === "solo-keyboard" || (this.mode === "multiplayer" && options.hostPlays)) {
         client.userData.playerId = client.sessionId;
-        this.lobby.set(client.sessionId, { sessionId: client.sessionId, nickname: "玩家", color: PLAYER_COLORS[0], ready: true, isBot: false });
-        this.simulation.addPlayer(client.sessionId, "玩家", PLAYER_COLORS[0]);
+        this.lobby.set(client.sessionId, { sessionId: client.sessionId, nickname: "玩家", color: PLAYER_COLORS[0], characterId, ready: true, isBot: false });
+        this.simulation.addPlayer(client.sessionId, "玩家", PLAYER_COLORS[0], undefined, characterId);
         if (this.mode === "solo-keyboard") this.addBots();
       }
     } else {
@@ -177,10 +180,11 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
         sessionId: client.sessionId,
         nickname,
         color,
+        characterId,
         ready: false,
         isBot: false,
       });
-      this.simulation.addPlayer(client.sessionId, nickname, color);
+      this.simulation.addPlayer(client.sessionId, nickname, color, undefined, characterId);
       if (this.mode === "solo-phone") this.addBots();
     }
     this.broadcastRoomStatus();
@@ -390,6 +394,7 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
           id: entry.sessionId,
           nickname: entry.nickname,
           color: entry.color,
+          characterId: entry.characterId,
           ready: entry.ready,
           connection: snapshot?.connection ?? "disconnected",
           raceStatus: snapshot?.status ?? "waiting",
@@ -409,8 +414,9 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
       const id = `cpu-${index + 1}`;
       const color = this.firstAvailableColor();
       const nickname = `電腦 ${index + 1}`;
-      this.lobby.set(id, { sessionId: id, nickname, color, ready: true, isBot: true });
-      this.simulation.addPlayer(id, nickname, color, BOT_CONFIG.laneOffsets[index]);
+      const characterId = CHARACTER_IDS.find(id => ![...this.lobby.values()].some(entry => entry.characterId === id)) ?? DEFAULT_CHARACTER;
+      this.lobby.set(id, { sessionId: id, nickname, color, characterId, ready: true, isBot: true });
+      this.simulation.addPlayer(id, nickname, color, BOT_CONFIG.laneOffsets[index], characterId);
     }
   }
 

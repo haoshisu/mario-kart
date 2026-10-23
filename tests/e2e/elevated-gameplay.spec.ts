@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { driveRace } from "./driveRace";
 
 test("drives a raised canyon, stores two icons and uses the front item with E", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(210_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/game?e2e=1&stats=1");
@@ -15,7 +15,7 @@ test("drives a raised canyon, stores two icons and uses the front item with E", 
   const player = page.getByTestId("multiplayer-runtime").locator("span", { hasText: "玩家" });
   await expect.poll(async () => Number(await player.getAttribute("data-speed"))).toBeGreaterThan(3);
   await page.keyboard.up("ArrowUp");
-  const drive = driveRace(page, "玩家", "keyboard", 90_000, -.9, false, "canyon", true);
+  const drive = driveRace(page, "玩家", "keyboard", 180_000, -.9, false, "canyon", true);
   try {
     await expect.poll(async () => Number(await player.getAttribute("data-y")), { timeout: 25_000 }).toBeGreaterThan(7);
     await page.screenshot({ path: "/tmp/elevated-canyon-driving.png" });

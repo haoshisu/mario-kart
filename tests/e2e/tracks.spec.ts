@@ -1,12 +1,17 @@
 import { expect, test } from "@playwright/test";
+import { driveRace } from "./driveRace";
+import { createCircuitSection } from "../../src/game/track/circuitSections";
+import { getTrackData } from "../../src/game/track/trackData";
+import type { RaceSnapshot } from "../../src/game/network/protocol";
+import { TEST_SNAPSHOT_EVENT } from "../../src/game/network/snapshotDiagnostics";
 
 const courses = [["meadow", "風車花谷"], ["harbor", "霓虹港都"], ["canyon", "落日砂岩"], ["aurora", "極光冰谷"]] as const;
 
 test("previews and drives every themed circuit, preserving the selected track on reconnect", async ({ page }) => {
-  test.setTimeout(100_000);
+  test.setTimeout(180_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/game?stats=1");
+  await page.goto("/game?e2e=1&stats=1");
   await page.getByRole("combobox", { name: "畫質" }).selectOption("low");
   // Long and tall circuits must remain whole in the selector thumbnails.
   const thumbnails = await page.getByRole("group", { name: "選擇賽道" }).locator("svg").evaluateAll(elements => elements.map(element => {
@@ -17,7 +22,7 @@ test("previews and drives every themed circuit, preserving the selected track on
     return bounds.x >= view.x && bounds.y >= view.y &&
       bounds.x + bounds.width <= view.x + view.width && bounds.y + bounds.height <= view.y + view.height;
   }));
-  expect(thumbnails).toEqual([true, true, true, true]);
+  expect(thumbnails).toEqual([true, true, true, true, true, true, true]);
   for (const [id, name] of courses) {
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(page.locator(".game-canvas")).toHaveAttribute("data-track-id", id);
@@ -40,7 +45,27 @@ test("previews and drives every themed circuit, preserving the selected track on
     await expect.poll(async () => Number(await page.getByTestId("multiplayer-runtime").locator("span", { hasText: "玩家" }).getAttribute("data-speed"))).toBeGreaterThan(4);
     await page.keyboard.up("KeyW");
     await page.screenshot({ path: `/tmp/track-${id}-drive.png` });
-    console.log(id, await page.getByTestId("render-diagnostics").textContent());
+    const selectedTrack = getTrackData(id);
+    const section = createCircuitSection(id, selectedTrack.race.RACE_ROUTE_SAMPLES, selectedTrack.branches);
+    const reachedSection = page.evaluate(({ target, eventName }) => new Promise<boolean>(resolve => {
+      const finish = (reached: boolean) => { window.clearTimeout(timeout); window.removeEventListener(eventName, receive); resolve(reached); };
+      const receive = (event: Event) => {
+        if (!(event instanceof CustomEvent)) return;
+        const player = (event.detail as RaceSnapshot).players.find(player => player.nickname === "玩家");
+        if (player && Math.hypot(player.position[0] - target[0], player.position[2] - target[2]) < 4) finish(true);
+      };
+      const timeout = window.setTimeout(() => finish(false), 40_000);
+      window.addEventListener(eventName, receive);
+    }), { target: section.frames[Math.floor(section.frames.length / 2)].position, eventName: TEST_SNAPSHOT_EVENT });
+    const drive = driveRace(page, "玩家", "keyboard", 45_000, 0, false, id, false);
+    try {
+      expect(await reachedSection, section.name).toBe(true);
+      await page.screenshot({ path: `/tmp/track-${id}-signature.png` });
+      console.log(id, section.name, await page.getByTestId("render-diagnostics").textContent());
+    } finally {
+      await page.evaluate(() => window.dispatchEvent(new Event("kart-race-test-stop-drive")));
+      await drive;
+    }
     await page.getByRole("button", { name: "顯示 QR Code" }).click();
     await page.getByRole("button", { name: "關閉房間" }).click();
     await expect(page.getByRole("group", { name: "選擇賽道" })).toBeVisible();
@@ -65,15 +90,19 @@ test("phone joins the host's canyon and the track picker fits small screens", as
   try {
     const phone = await context.newPage();
     phone.on("pageerror", (error) => errors.push(error.message));
-    await phone.goto(`/controller/${roomId}`);
+    await phone.goto(`/controller/${roomId}?e2e=1&stats=1`);
     await phone.getByLabel("暱稱").fill("Canyon Driver");
     await phone.getByRole("button", { name: "加入房間" }).click();
     await phone.getByRole("button", { name: "準備完成" }).click();
     await page.getByTestId("start-race").click();
     await expect(phone.getByTestId("player-game")).toHaveAttribute("data-track-id", "canyon");
     await expect(phone.getByTestId("course-map")).toHaveAttribute("aria-label", "落日砂岩賽道地圖");
+    await expect(phone.getByTestId("map-shortcut")).toHaveCount(1);
     await expect(phone.locator(".scene-loading")).toHaveCount(0);
     await expect(phone.locator(".start-light-board")).toBeVisible();
+    await expect.poll(async () => Number(await phone.getByTestId("render-diagnostics").getAttribute("data-triangles"))).toBeGreaterThan(10_000);
+    await expect(phone.getByTestId("mobile-controller")).toHaveAttribute("data-phase", "racing");
+    await expect.poll(async () => Number(await phone.getByTestId("mobile-controller").getAttribute("data-speed"))).toBeGreaterThan(4);
     await phone.screenshot({ path: "/tmp/track-canyon-phone.png" });
     await page.getByRole("button", { name: "顯示 QR Code" }).click();
     await page.getByRole("button", { name: "關閉房間" }).click();

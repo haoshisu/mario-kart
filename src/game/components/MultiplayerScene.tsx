@@ -1,3 +1,4 @@
+import { ParkGardener } from "./ParkGardener";
 import { memo, type RefObject } from "react";
 import type { SnapshotBuffer } from "../network/interpolation";
 import type { LobbyPlayer } from "../network/protocol";
@@ -26,13 +27,15 @@ export const MultiplayerScene = memo(function MultiplayerScene({
     <>
       <SceneLights />
       <Ground />
-      <Track />
+      <Track snapshotsRef={snapshotsRef} />
       <RaceMarkers />
-      <TrackDecorations />
+      <TrackDecorations snapshotsRef={snapshotsRef} />
+      <ParkGardener snapshotsRef={snapshotsRef} />
       <ItemWorld snapshotsRef={snapshotsRef} />
       {players.map((player) => (
         <PlayerKart
           color={player.color}
+          characterId={player.characterId}
           key={player.id}
           nickname={player.nickname}
           playerId={player.id}

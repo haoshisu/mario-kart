@@ -41,6 +41,7 @@ export function CourseMap({ runtimeRef, snapshotsRef, playerId }: {
     <svg viewBox={track.bounds.viewBox} role="img" aria-label="路線、跳台、加速帶與車輛位置；白框大圓點為自己">
       <path d={OUTLINE} fill="none" stroke="#0c323d" strokeWidth="7" strokeLinejoin="round" />
       <path d={OUTLINE} fill="none" stroke="#eaf6e5" strokeWidth="4" strokeLinejoin="round" />
+      {track.branches.map(branch => <path key={branch.id} data-testid={(branch.movable || branch.id === "taipei-crossing") ? "map-risk-route" : "map-shortcut"} d={branch.samples.map((sample, i) => `${i ? "L" : "M"}${sample.position[0]},${sample.position[1]}`).join(" ")} fill="none" stroke="#ffd37c" strokeWidth="3" />)}
       {BOOST_PADS.map((pad) => <circle key={pad.id} cx={pad.position[0]} cy={pad.position[1]} r="1.4" fill="#c9f84c" stroke="#587827" strokeWidth=".4" />)}
       {track.ramps.map(ramp => <rect key={ramp.id} x={ramp.position[0] - 1.5} y={ramp.position[1] - 1.5} width="3" height="3" fill="#ec70ef" stroke="#ffffff" strokeWidth=".5" />)}
       <path d={`M${FINISH_MARKER.position[0]},${FINISH_MARKER.position[1] - 3}v6`} stroke="#f8796b" strokeWidth="1.2" />

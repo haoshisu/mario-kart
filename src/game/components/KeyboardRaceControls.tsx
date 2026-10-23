@@ -20,6 +20,7 @@ export function KeyboardRaceControls({ state, sendInput, useItem }: {
       useItem(player.item.revision);
     }
   });
+  if (state.racePhase === "finished" || (state.racePhase === "racing" && (player?.status === "finished" || player?.status === "dnf"))) return null;
   return <aside className="keyboard-race-controls" aria-label="鍵盤駕駛" data-testid="keyboard-race-controls">
     <div className="keyboard-race-controls__input">
     <button type="button" onClick={() => setTouch(!touch)}>{touch ? "切換鍵盤操作" : "切換觸控操作"}</button>

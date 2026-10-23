@@ -10,6 +10,17 @@ import {
 } from "./protocol";
 
 describe("controller protocol validation", () => {
+  it("accepts the four original characters and rejects unknown character IDs", () => {
+    for (const role of ["host", "controller"]) {
+      const options = { role, protocolVersion: NETWORK_CONFIG.protocolVersion };
+      for (const characterId of ["dodo", "lumi", "lili", "bibo", undefined]) {
+        expect(isRoomJoinOptions({ ...options, characterId })).toBe(true);
+      }
+      for (const characterId of ["unknown", "../other", null, 1, {}]) {
+        expect(isRoomJoinOptions({ ...options, characterId })).toBe(false);
+      }
+    }
+  });
   it("only permits supported host-selected race modes", () => {
     const options = { protocolVersion: NETWORK_CONFIG.protocolVersion, role: "host" };
     expect(isRoomJoinOptions({ ...options, mode: "solo-keyboard" })).toBe(true);

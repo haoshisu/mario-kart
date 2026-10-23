@@ -11,6 +11,7 @@ export type KartRuntimeState = {
   poseRevision: number;
   yaw: number;
   speed: number;
+  trackSeconds: number;
   steer: number;
   stuntProgress: number;
   drifting: boolean;
@@ -50,6 +51,7 @@ export function createKartRuntimeState(): KartRuntimeState {
     poseRevision: 0,
     yaw: KART_START.yaw,
     speed: 0,
+    trackSeconds: 0,
     steer: 0,
     stuntProgress: 0,
     drifting: false,

@@ -1,6 +1,6 @@
 import type { RaceSnapshot } from "../network/protocol";
 
-export type RaceSound = "countdown" | "go" | "finish" | "pickup" | "use" | "hit" | "immune" | "boost" | "collision";
+export type RaceSound = "countdown" | "go" | "finish" | "pickup" | "use" | "hit" | "immune" | "boost" | "collision" | "drift1" | "drift2" | "drift3" | "crossing" | "draftReady" | "draftBoost";
 
 export class RaceSoundCues {
   private phase: RaceSnapshot["phase"] | null = null;

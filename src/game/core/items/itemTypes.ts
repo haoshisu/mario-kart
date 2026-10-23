@@ -28,11 +28,13 @@ export type ItemRacer = Readonly<{
   previousPosition: Point2;
   yaw: number;
   eligible: boolean;
+  height?: number;
 }>;
 export type TrapState = Readonly<{
   id: string;
   ownerId: string;
   position: Point2;
+  height?: number;
   armedAt: number;
   expiresAt: number;
 }>;
@@ -42,6 +44,7 @@ export type ProjectileState = {
   kind: "disc" | "orb";
   position: Point2;
   yaw: number;
+  height?: number;
   targetId: string | null;
   remaining: number;
 };

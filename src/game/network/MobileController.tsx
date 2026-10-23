@@ -1,11 +1,15 @@
 "use client";
 
+import { RaceResults, PersonalFinishNotice } from "../components/RaceResults";
 import { Countdown, countdownCue } from "../components/Countdown";
 import { DrivingGuide } from "../components/DrivingGuide";
+import { RaceAudioControls } from "../components/RaceAudioControls";
 import dynamic from "next/dynamic";
 import { SnapshotBuffer } from "./interpolation";
 import { useNetworkKeyboard } from "../input/useNetworkKeyboard";
 
+import { CharacterPicker } from "../components/CharacterPicker";
+import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId, type CharacterId } from "../entities/characters";
 import { createSnapshotDiagnostics } from "./snapshotDiagnostics";
 import { InputSender } from "./inputSender";
 import { ControllerItemPanel } from "./ControllerItemPanel";
@@ -77,6 +81,7 @@ function roomStorageKey(roomId: string) {
 export function MobileController({ roomId }: MobileControllerProps) {
   const snapshotsRef = useRef(new SnapshotBuffer());
   const [keyboard, setKeyboard] = useState(false);
+  const [characterId, setCharacterId] = useState<CharacterId>(DEFAULT_CHARACTER);
   const [nickname, setNickname] = useState("");
   const [color, setColor] = useState<PlayerColor | undefined>(undefined);
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
@@ -95,6 +100,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
   const ownPlayer = snapshot?.players.find((player) => player.id === currentPlayerId);
   const roomRef = useRef<Room | null>(null);
+  const characterRef = useRef(characterId);
   const nicknameRef = useRef(nickname);
   const colorRef = useRef(color);
   const sequenceRef = useRef(0);
@@ -104,6 +110,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
   const manuallyLeavingRef = useRef(false);
   const lastLatencyReportAtRef = useRef(0);
   const lastSnapshotUiAtRef = useRef(0);
+  const resultPhaseRef = useRef<RaceSnapshot["phase"] | null>(null);
 
   const transmitInput = useCallback((input: KartInput) => {
     const room = roomRef.current;
@@ -161,6 +168,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         token: room.reconnectionToken,
         nickname: nicknameRef.current,
         color: colorRef.current,
+        characterId: characterRef.current,
       }),
     );
 
@@ -169,6 +177,10 @@ export function MobileController({ roomId }: MobileControllerProps) {
     });
     room.onMessage<RaceSnapshot>(ROOM_MESSAGE.snapshot, (nextSnapshot) => {
       if (!snapshotsRef.current.add(nextSnapshot)) return;
+      if (resultPhaseRef.current !== nextSnapshot.phase) {
+        resultPhaseRef.current = nextSnapshot.phase;
+        setError(null);
+      }
       publishDiagnostics?.(nextSnapshot);
       setRoomStatus((current) => (
         current.phase === nextSnapshot.phase
@@ -232,6 +244,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
           token: room.reconnectionToken,
           nickname: nicknameRef.current,
           color: colorRef.current,
+          characterId: characterRef.current,
         }),
       );
     });
@@ -308,6 +321,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         role: "controller",
         nickname,
         color,
+        characterId,
         protocolVersion: NETWORK_CONFIG.protocolVersion,
       });
       bindRoom(room);
@@ -315,7 +329,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
       setPhase("error");
       setError(connectionErrorMessage(joinError));
     }
-  }, [bindRoom, color, nickname, roomId]);
+  }, [bindRoom, color, characterId, nickname, roomId]);
 
   const leaveRoom = useCallback(() => {
     const room = roomRef.current;
@@ -347,15 +361,19 @@ export function MobileController({ roomId }: MobileControllerProps) {
         token?: unknown;
         nickname?: unknown;
         color?: unknown;
+        characterId?: unknown;
       };
       if (typeof parsed.token !== "string") {
         sessionStorage.removeItem(roomStorageKey(roomId));
         return;
       }
       const reconnectionToken = parsed.token;
+      const storedCharacter = isCharacterId(parsed.characterId) ? parsed.characterId : DEFAULT_CHARACTER;
       const storedNickname = typeof parsed.nickname === "string" ? parsed.nickname : "";
       const storedColor = PLAYER_COLORS.find((candidate) => candidate === parsed.color) ?? PLAYER_COLORS[0];
       void Promise.resolve().then(() => {
+        characterRef.current = storedCharacter;
+        setCharacterId(storedCharacter);
         nicknameRef.current = storedNickname;
         colorRef.current = storedColor;
         setNickname(storedNickname);
@@ -400,6 +418,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
             placeholder="Driver"
             value={nickname}
           />
+          <CharacterPicker value={characterId} disabled={phase === "connecting"} onChange={id => { characterRef.current = id; setCharacterId(id); }} />
           <fieldset className="controller-colors">
             <legend>車身顏色</legend>
             <button type="button" aria-pressed={color === undefined} onClick={() => { colorRef.current = undefined; setColor(undefined); }}>自動</button>
@@ -432,6 +451,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
       data-yaw={ownPlayer?.yaw} data-speed={ownPlayer?.speed} data-status={ownPlayer?.status}
       data-drift-tier={ownPlayer?.driftTier} data-turbo-tier={ownPlayer?.turboTier}>
       {currentPlayerId ? <PlayerGame trackId={roomStatus.trackId} players={roomStatus.players} snapshotsRef={snapshotsRef} playerId={currentPlayerId} /> : null}
+      <RaceAudioControls roomId={roomId} snapshot={snapshot} playerId={currentPlayerId} trackId={roomStatus.trackId} />
       <header className="controller-status-bar">
         <div>
           <span>{phase === "reconnecting" ? "RECONNECTING" : "CONNECTED"}</span>
@@ -451,6 +471,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
         />
       ) : null}
 
+      <PersonalFinishNotice snapshot={snapshot} playerId={currentPlayerId} />
       {roomStatus.phase === "finished" ? (
         <ControllerResult currentPlayerId={currentPlayerId} snapshot={snapshot} />
       ) : null}
@@ -520,7 +541,7 @@ function ControllerLobby({
         {status.players.map((player) => (
           <li key={player.id}>
             <i style={{ backgroundColor: PLAYER_COLOR_VALUES[player.color] }} />
-            <span>{player.nickname}</span>
+            <span>{player.nickname} · {CHARACTERS[player.characterId].name}</span>
             <strong>{player.isBot ? "CPU" : player.connection === "reconnecting" ? "重連中" : player.ready ? "READY" : "等待"}</strong>
           </li>
         ))}
@@ -544,16 +565,10 @@ function ControllerResult({
   currentPlayerId: string | null;
   snapshot: RaceSnapshot | null;
 }) {
-  const player = snapshot?.players.find((candidate) => candidate.id === currentPlayerId);
   return (
     <section className="controller-result" data-testid="controller-result">
-      <p className="eyebrow">RACE COMPLETE</p>
-      <h1>{player?.status === "dnf" ? "DNF" : `第 ${player?.rank ?? "—"} 名`}</h1>
-      <p>{player?.finishTime === null || player?.finishTime === undefined ? "未完成" : `${player.finishTime.toFixed(2)} 秒`}</p>
-      <ol className="controller-result-ranking">
-        {snapshot?.players.map((entry) => <li key={entry.id}>{entry.rank}. {entry.nickname} · {entry.status === "dnf" ? "DNF" : `${entry.finishTime?.toFixed(2)} 秒`}</li>)}
-      </ol>
-      <small>等待 Host 再玩一次或返回 Lobby</small>
+      <RaceResults snapshot={snapshot} playerId={currentPlayerId} />
+      <small>等待房主再玩一次或返回 Lobby；下一場開始時會自動進入倒數。</small>
     </section>
   );
 }

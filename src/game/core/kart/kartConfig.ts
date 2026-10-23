@@ -8,7 +8,9 @@ export const KART_CONFIG = {
   // At 60 Hz this covers a full step even at the fastest turbo tier.
   softCcdPrediction: 0.5,
   wheels: { radius: 0.29, centerY: -0.14, halfTrack: 0.72, frontZ: -0.55, rearZ: 0.62 },
-  grounding: { probeLift: 0.1, probeHalfLength: 1.02, snapDistance: 0.2, clearance: 0.002 },
+  // Road adhesion owns the wheel height. Keep the solid body above curved
+  // grade seams so their contacts cannot brake an otherwise grounded kart.
+  grounding: { probeLift: 0.1, probeHalfLength: 1.02, snapDistance: 0.2, clearance: 0.002, colliderLift: 0.12 },
   acceleration: 11.5,
   reverseAcceleration: 7,
   brakeDeceleration: 18,
@@ -26,6 +28,8 @@ export const KART_CONFIG = {
   driftMinimumSpeed: 5,
   driftMinimumSteer: 0.18,
   driftSteeringMultiplier: 1.3,
+  driftArc: { outer: 0.06, neutral: 0.18, inner: 0.65, minimumChargeRate: 0.55 },
+  turboReleaseDrag: 4,
   driftTiers: [
     {
       tier: 1,

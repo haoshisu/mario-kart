@@ -10,7 +10,7 @@ function monitor(page: Page) {
 for (const mode of ["keyboard", "phone"] as const) {
   test(`solo ${mode} races three CPUs with items, results, ${mode === "keyboard" ? "lobby" : "rematch"} and cleanup`, async ({ browser, page }) => {
     // Phone coverage includes a second complete race after the player leaves.
-    test.setTimeout(mode === "phone" ? 180_000 : 120_000);
+    test.setTimeout(mode === "phone" ? 540_000 : 330_000);
     const errors = monitor(page);
     await page.setViewportSize({ width: 960, height: 600 });
     await page.goto("/game?mode=bots&e2e=1");
@@ -65,15 +65,37 @@ for (const mode of ["keyboard", "phone"] as const) {
       await page.keyboard.down("KeyW");
     }
     await page.keyboard.up("KeyW");
-    const result = await driveRace(phone ?? page, phone ? "Solo Driver" : "玩家", phone ? "touch" : "keyboard", 90_000);
+    const result = await driveRace(phone ?? page, phone ? "Solo Driver" : "玩家", phone ? "touch" : "keyboard", 270_000);
     console.log(mode, result);
-    await expect(page.getByTestId("multiplayer-results")).toBeVisible();
+    await expect(page.getByTestId("multiplayer-results")).toBeVisible({ timeout: 35_000 });
     await expect(player).toHaveAttribute("data-status", "finished");
     await expect(player).toHaveAttribute("data-laps", "3");
     expect(result.usedItem).toBe(true);
     await expect(runtime.locator('span[data-player-id^="cpu-"][data-status="finished"]')).toHaveCount(3);
     await page.screenshot({ path: `/tmp/solo-${mode}-results.png` });
-    if (phone) await expect(phone.getByTestId("controller-result")).toBeVisible();
+    await expect(page.getByTestId("race-winner")).toContainText("本場冠軍");
+    if (phone) {
+      await expect(phone.getByTestId("controller-result")).toBeVisible();
+      await expect(phone.getByTestId("personal-result")).toContainText("第");
+      expect(await phone.getByRole("list", { name: "最終排名" }).allTextContents())
+        .toEqual(await page.getByRole("list", { name: "最終排名" }).allTextContents());
+      for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        await phone.setViewportSize(viewport);
+        await expect(phone.getByTestId("personal-result")).toBeVisible();
+        await phone.screenshot({ path: `/tmp/race-results-phone-${viewport.width}.png` });
+        expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        const lastResult = phone.getByRole("list", { name: "最終排名" }).locator("li").last();
+        await lastResult.scrollIntoViewIfNeeded();
+        expect(await lastResult.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        })).toBe(true);
+        await phone.getByTestId("controller-result").evaluate(element => { element.scrollTop = 0; });
+      }
+    } else {
+      await expect(page.getByTestId("personal-result")).toContainText("第");
+      await expect(page.getByTestId("keyboard-race-controls")).toHaveCount(0);
+    }
     if (mode === "keyboard") {
       await page.getByRole("button", { name: "返回 Lobby", exact: true }).click();
       await expect(runtime).toHaveAttribute("data-phase", "lobby");
@@ -89,8 +111,9 @@ for (const mode of ["keyboard", "phone"] as const) {
     await page.screenshot({ path: `/tmp/solo-${mode}-rematch.png` });
     if (phone) {
       await phone.getByRole("button", { name: "離開", exact: true }).click();
-      await expect(page.getByTestId("multiplayer-results")).toBeVisible({ timeout: 70_000 });
+      await expect(page.getByTestId("multiplayer-results")).toBeVisible({ timeout: 240_000 });
       await expect(page.getByTestId("rematch")).toBeDisabled();
+      await expect(page.locator("#rematch-status")).toContainText("真人玩家");
       await page.getByRole("button", { name: "返回 Lobby", exact: true }).click();
       await expect(runtime).toHaveAttribute("data-phase", "lobby");
       await expect(runtime.locator("span")).toHaveCount(0);

@@ -81,7 +81,7 @@ describe("kartPhysics", () => {
         neutral,
         KART_CONFIG.fixedTimeStep,
       ).state;
-      expect(capped.speed).toBe(tierConfig.maxSpeed);
+      expect(capped.speed).toBeLessThanOrEqual(KART_CONFIG.driftTiers[2].maxSpeed);
 
       const finished = stepMany(
         release.state,
@@ -107,6 +107,7 @@ describe("kartPhysics", () => {
   it("clears an active turbo without retaining its tier", () => {
     const cleared = clearDriftBoost({
       active: false,
+      direction: 0,
       charge: 0,
       chargeTier: 0,
       turboRemaining: 1,

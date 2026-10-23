@@ -9,6 +9,7 @@ export type KartInput = Readonly<{
 
 export type DriftState = Readonly<{
   active: boolean;
+  direction: -1 | 0 | 1;
   charge: number;
   chargeTier: DriftTier;
   turboRemaining: number;

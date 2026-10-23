@@ -15,6 +15,7 @@ const player = (x: number): PlayerSnapshot => ({
   id: "driver",
   nickname: "Driver",
   color: "coral",
+    characterId: "dodo",
   connection: "connected",
   status: "racing",
   position: [x, 0.52, 0],
@@ -24,6 +25,7 @@ const player = (x: number): PlayerSnapshot => ({
   drifting: false,
   driftTier: 0,
   turboTier: 0,
+  slipstream: { charge: 0, ready: false, boostRemaining: 0, boostRevision: 0 },
   spinOutRemaining: 0, stuntProgress: 0,
   impactRevision: 0,
   impactKind: "kart",
@@ -74,6 +76,25 @@ describe("SnapshotBuffer", () => {
     expect(buffer.sample(1050 + NETWORK_CONFIG.interpolationDelayMs)?.items.projectiles[0].position[0]).toBeCloseTo(1);
     buffer.add(snapshot(3, 1200, 0), 1200);
     expect(buffer.sample(1150 + NETWORK_CONFIG.interpolationDelayMs)?.items.projectiles).toHaveLength(0);
+  });
+
+  it("smooths tail charging but preserves ready and newly earned boost transitions", () => {
+    const buffer = new SnapshotBuffer();
+    const add = (tick: number, draft: PlayerSnapshot["slipstream"]) => {
+      const data = snapshot(tick, 900 + tick * 100, tick);
+      buffer.add({ ...data, players: [{ ...data.players[0], slipstream: draft }] }, data.serverTime);
+    };
+    add(1, { charge: .2, ready: false, boostRemaining: 0, boostRevision: 0 });
+    add(2, { charge: .6, ready: false, boostRemaining: 0, boostRevision: 0 });
+    expect(buffer.sample(1050 + NETWORK_CONFIG.interpolationDelayMs)?.players[0].slipstream.charge).toBeCloseTo(.4);
+    add(3, { charge: 1, ready: true, boostRemaining: 0, boostRevision: 0 });
+    expect(buffer.sample(1150 + NETWORK_CONFIG.interpolationDelayMs)?.players[0].slipstream).toMatchObject({ charge: 1, ready: true });
+    add(4, { charge: 0, ready: false, boostRemaining: .7, boostRevision: 1 });
+    expect(buffer.sample(1250 + NETWORK_CONFIG.interpolationDelayMs)?.players[0].slipstream).toEqual({ charge: 0, ready: false, boostRemaining: .7, boostRevision: 1 });
+    add(5, { charge: 0, ready: false, boostRemaining: .6, boostRevision: 1 });
+    expect(buffer.sample(1350 + NETWORK_CONFIG.interpolationDelayMs)?.players[0].slipstream.boostRemaining).toBeCloseTo(.65);
+    add(6, { charge: 0, ready: false, boostRemaining: 0, boostRevision: 1 });
+    expect(buffer.sample(1500 + NETWORK_CONFIG.interpolationDelayMs)?.players[0].slipstream.boostRemaining).toBe(0);
   });
 
   it("snaps across a server teleport instead of blending through barriers", () => {

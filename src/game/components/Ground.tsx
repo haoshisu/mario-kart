@@ -1,18 +1,23 @@
+import { surfaceTexture } from "../rendering/surfaceTextures";
 import { useTrack } from "../track/TrackContext";
-import { TRACK_CONFIG } from "../track/trackConfig";
 
 export function Ground() {
-  const { colors: TRACK_COLORS } = useTrack();
+  const { id, colors: TRACK_COLORS, ground } = useTrack();
+  // The harbor water already covers this footprint; an invisible slab directly
+  // underneath it causes depth flicker when the world camera zooms out.
+  if (id === "jiufen" || id === "kaohsiung" || id === "tainan" || id === "taichung") return null;
+  const width = ground.width;
+  const centerX = ground.centerX;
   return (
-    <mesh position={[0, -TRACK_CONFIG.ground.thickness / 2, 0]} receiveShadow>
+    <mesh position={[centerX, -ground.thickness / 2, ground.centerZ]} receiveShadow>
       <boxGeometry
         args={[
-          TRACK_CONFIG.ground.width,
-          TRACK_CONFIG.ground.thickness,
-          TRACK_CONFIG.ground.depth,
+          width,
+          ground.thickness,
+          ground.depth,
         ]}
       />
-      <meshStandardMaterial color={TRACK_COLORS.grass} roughness={0.98} />
+      <meshStandardMaterial color={id === "taipei" ? "#6c6861" : TRACK_COLORS.grass} map={surfaceTexture(id === "taipei" ? "concrete" : "grass")} bumpMap={surfaceTexture(id === "taipei" ? "concrete" : "grass")} bumpScale={.04} roughness={0.98} />
     </mesh>
   );
 }

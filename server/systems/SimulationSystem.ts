@@ -1,5 +1,11 @@
-import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, applyRampSurface, STUNT_CONFIG } from "../../src/game/core/stunts/stuntSystem";
-import { sampleTrackSurface, roadQuaternion, createSurfaceResult } from "../../src/game/track/trackSurface";
+import { DEFAULT_CHARACTER, type CharacterId } from "../../src/game/entities/characters";
+import { createBridgeState, stepBridge } from "../../src/game/systems/rotatingBridge";
+import { bridgeOccupied } from "../../src/game/track/taiwanBridge";
+import { courseHandling } from "../../src/game/track/courseDesign";
+import { createParkObstacle, parkObstaclePose, parkObstacleYaw, type ParkObstacle } from "../../src/game/track/parkObstacle";
+import { sampleDrivingSurface } from "../../src/game/track/drivingSurface";
+import { createStuntState, stepStuntLaunch, finishStunt, stuntProgress, applyStuntBoost, applyRampSurface, updateStuntTrick, STUNT_CONFIG } from "../../src/game/core/stunts/stuntSystem";
+import { roadQuaternion, createSurfaceResult } from "../../src/game/track/trackSurface";
 import { resolveWallCollision } from "../../src/game/core/collision/collisionSystem";
 import RAPIER, { type Collider, type RigidBody } from "@dimforge/rapier3d-compat";
 import { EMPTY_KART_INPUT, type KartInput } from "../../src/game/core/kart/kartTypes";
@@ -11,12 +17,13 @@ import {
   stepKartSimulation,
 } from "../../src/game/core/kart/kartPhysics";
 import { KART_CONFIG, KART_START } from "../../src/game/core/kart/kartConfig";
+import { getDriftSteering } from "../../src/game/core/kart/driftSystem";
 import {
   createInitialRaceState,
   startRace,
   stepRace,
 } from "../../src/game/core/race/raceEngine";
-import { FINISH_MARKER } from "../../src/game/core/race/raceTrack";
+import { FINISH_MARKER, type RaceRouteSample } from "../../src/game/core/race/raceTrack";
 import { getTrackData, type TrackData } from "../../src/game/track/trackData";
 import type { TrackId } from "../../src/game/track/trackCatalog";
 import { TRACK_CONFIG } from "../../src/game/track/trackConfig";
@@ -29,10 +36,12 @@ import type {
   ImpactKind,
 } from "../../src/game/network/protocol";
 import type { ServerPlayerState } from "../state/roomState";
-import { getCollisionResponse, getNormalImpactSpeed } from "./CollisionSystem";
+import { resolveKartCollision, getNormalImpactSpeed } from "./CollisionSystem";
 import { InputSystem } from "./InputSystem";
 import { botInput } from "./BotDriver";
 import { BOT_CONFIG } from "./botConfig";
+import { SlipstreamSystem } from "./SlipstreamSystem";
+import { createSlipstreamState, interruptSlipstream, slipstreamSnapshot, SLIPSTREAM_CONFIG } from "../../src/game/core/kart/slipstreamSystem";
 import { rankPlayers } from "./RankingSystem";
 import { ItemSystem } from "../../src/game/core/items/ItemSystem";
 import { createItemState } from "../../src/game/core/items/ItemEffects";
@@ -43,6 +52,7 @@ import type { Point2 } from "../../src/game/core/race/raceTrack";
 type PhysicsPlayer = {
   body: RigidBody;
   collider: Collider;
+  contactCollider: Collider;
 };
 
 type ColliderTag =
@@ -71,8 +81,15 @@ function gridPose(index: number, playerCount: number, finish = FINISH_MARKER) {
 }
 
 export class SimulationSystem {
+  private readonly slipstreams = new SlipstreamSystem();
+  private readonly bridgeState = createBridgeState();
+  private bridgeBody: RigidBody | null = null;
+  private bridgeGates: RigidBody[] = [];
+  private parkObstacle: { body: RigidBody; definition: ParkObstacle } | null = null;
+  private obstaclePose = { x: 0, y: 0, z: 0 };
   readonly track: TrackData;
   private readonly surface = createSurfaceResult();
+  private readonly botBranches: readonly (readonly RaceRouteSample[])[];
   readonly input = new InputSystem();
   private readonly world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   private readonly eventQueue = new RAPIER.EventQueue(true);
@@ -92,12 +109,20 @@ export class SimulationSystem {
   constructor(seed = Math.floor(Math.random() * 0x100000000), trackId: TrackId = "meadow") {
     this.track = getTrackData(trackId);
     this.raceSeed = seed;
-    this.items = new ItemSystem(seed, this.track.items, this.track.geometry.GUARD_RAIL_SEGMENTS);
+    this.botBranches = this.track.branches.map(branch => {
+      const main = this.track.race.RACE_ROUTE_SAMPLES;
+      const exit = Math.round(branch.exitProgress * main.length);
+      return [...branch.samples.map((sample, i) => ({ ...sample, distance: i, raceProgress: branch.entryProgress + sample.progress * (branch.exitProgress - branch.entryProgress) })),
+        ...Array.from({ length: 24 }, (_, i) => main[(exit + i + 1) % main.length])];
+    });
+    this.items = new ItemSystem(seed, this.track.items, [...this.track.geometry.GUARD_RAIL_SEGMENTS, ...this.track.branches.flatMap(branch => branch.geometry.GUARD_RAIL_SEGMENTS)],
+      (x, z, height) => sampleDrivingSurface(x, z, this.track, undefined, height, this.bridgeState.locked).height);
     this.world.timestep = FIXED_DELTA;
     this.createStaticTrack();
+    this.world.forEachCollider(collider => collider.setCollisionGroups(NETWORK_CONFIG.collision.groups.road));
   }
 
-  addPlayer(id: string, nickname: string, color: PlayerColor, botLane?: number) {
+  addPlayer(id: string, nickname: string, color: PlayerColor, botLane?: number, characterId: CharacterId = DEFAULT_CHARACTER) {
     if (this.players.has(id)) {
       return;
     }
@@ -113,27 +138,41 @@ export class SimulationSystem {
         .lockRotations(),
     );
     const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(NETWORK_CONFIG.collision.colliderHalfWidth * KART_CONFIG.modelScale, 0.3, 0.9 * KART_CONFIG.modelScale, 0.12 * KART_CONFIG.modelScale)
+      RAPIER.ColliderDesc.roundCuboid(NETWORK_CONFIG.collision.roadColliderHalfWidth * KART_CONFIG.modelScale, 0.3, 0.9 * KART_CONFIG.modelScale, 0.12 * KART_CONFIG.modelScale)
+        .setTranslation(0, KART_CONFIG.grounding.colliderLift, 0)
+        .setCollisionGroups(NETWORK_CONFIG.collision.groups.roadKart)
         .setDensity(1.1)
         .setFriction(0.25)
         .setRestitution(0.18)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
       body,
     );
+    // Tyres participate in kart-to-kart contact; the road shape preserves the
+    // clearance already validated at curved uphill seams and narrow guards.
+    const contactCollider = this.world.createCollider(
+      RAPIER.ColliderDesc.roundCuboid(NETWORK_CONFIG.collision.colliderHalfWidth * KART_CONFIG.modelScale, 0.3, 0.9 * KART_CONFIG.modelScale, 0.12 * KART_CONFIG.modelScale)
+        .setTranslation(0, KART_CONFIG.grounding.colliderLift, 0)
+        .setCollisionGroups(NETWORK_CONFIG.collision.groups.kartContact)
+        .setDensity(0)
+        .setFriction(0)
+        .setRestitution(0.18), body,
+    );
     this.colliderTags.set(collider.handle, { kind: "player", playerId: id });
-    this.physicsPlayers.set(id, { body, collider });
+    this.physicsPlayers.set(id, { body, collider, contactCollider });
     this.players.set(id, {
       id,
       nickname,
       color,
+      characterId,
       connection: "connected",
       status: "waiting",
       kart: createInitialKartState(pose.yaw),
+      slipstream: createSlipstreamState(),
       race: createInitialRaceState(),
       lateralSpeed: 0,
       wallReboundRemaining: 0,
       spinOutRemaining: 0,
-      stunt: createStuntState(),
+      stunt: createStuntState(this.track.id === "taipei"),
       impactRevision: 0,
       impactKind: "kart",
       collisionCooldown: 0,
@@ -153,6 +192,7 @@ export class SimulationSystem {
       this.world.removeRigidBody(physics.body);
     }
     this.physicsPlayers.delete(id);
+    this.slipstreams.remove(id);
     this.players.delete(id);
     this.input.removePlayer(id);
     this.bots.delete(id);
@@ -167,6 +207,8 @@ export class SimulationSystem {
     if (player) {
       player.connection = connection;
       if (connection !== "connected") {
+        this.slipstreams.remove(id);
+        player.slipstream = createSlipstreamState();
         this.input.neutralize(id);
         this.items.clearPlayer(id, this.tick, this.itemRacer(player).position);
       }
@@ -180,14 +222,17 @@ export class SimulationSystem {
       return;
     }
     player.connection = "disconnected";
+    this.slipstreams.remove(id);
+    player.slipstream = createSlipstreamState();
     // Leaving after crossing the finish line cannot revoke an authoritative result.
     if (player.status !== "finished") player.status = "dnf";
     this.items.clearPlayer(id, this.tick, this.itemRacer(player).position);
-    player.stunt = createStuntState();
+    player.stunt = createStuntState(this.track.id === "taipei");
     player.kart = createInitialKartState(player.kart.yaw);
     physics?.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     physics?.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
     physics?.collider.setSensor(true);
+    physics?.contactCollider.setSensor(true);
     this.finishIfComplete();
   }
 
@@ -198,14 +243,16 @@ export class SimulationSystem {
     this.phase = "countdown";
     this.finishDeadlineTick = null;
     this.items.reset(this.raceSeed++);
+    this.slipstreams.reset();
     // Room-wide sequence must remain monotonic for broadcast scheduling and snapshot ordering.
     this.players.forEach((player, id) => {
       const index = [...this.players.keys()].indexOf(id);
       const pose = gridPose(index, this.players.size, this.track.race.FINISH_MARKER);
       const physics = this.physicsPlayers.get(id);
       player.status = "racing";
-      player.stunt = createStuntState();
+      player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(pose.yaw);
+      player.slipstream = createSlipstreamState();
       player.race = startRace(createInitialRaceState()).state;
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -215,6 +262,7 @@ export class SimulationSystem {
       if (physics) {
         physics.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
         physics.collider.setSensor(false);
+        physics.contactCollider.setSensor(false);
         physics.body.setTranslation(
           { x: pose.position[0], y: pose.position[1], z: pose.position[2] },
           true,
@@ -234,8 +282,10 @@ export class SimulationSystem {
     this.phase = "lobby";
     this.finishDeadlineTick = null;
     this.items.reset(this.raceSeed);
+    this.slipstreams.reset();
     this.players.forEach((player) => {
       player.status = "waiting";
+      player.slipstream = createSlipstreamState();
       player.race = createInitialRaceState();
       player.spinOutRemaining = 0;
       this.input.neutralize(player.id);
@@ -246,6 +296,23 @@ export class SimulationSystem {
   step(now = Date.now()) {
     if (this.disposed) return;
     this.tick += 1;
+    const bridge = this.track.bridge;
+    if (bridge && this.bridgeBody) {
+      let occupied = false;
+      for (const player of this.players.values()) {
+        const body = this.physicsPlayers.get(player.id)?.body;
+        if (!body || player.status !== "racing") continue;
+        const p = body.translation();
+        occupied ||= bridgeOccupied(bridge.branch,p.x,p.y-.52,p.z);
+      }
+      stepBridge(this.bridgeState,FIXED_DELTA,occupied);
+      this.bridgeBody.setNextKinematicRotation(yawRotation(this.bridgeState.angle));
+      this.bridgeGates.forEach((body,i)=>body.setNextKinematicTranslation({x:bridge.gates[i].position[0],y:bridge.gates[i].position[1]+this.bridgeState.gateHeight,z:bridge.gates[i].position[2]}));
+    }
+    if (this.parkObstacle) {
+      this.parkObstacle.body.setNextKinematicTranslation(parkObstaclePose(this.parkObstacle.definition, this.tick * FIXED_DELTA, this.obstaclePose));
+      this.parkObstacle.body.setNextKinematicRotation(yawRotation(parkObstacleYaw(this.parkObstacle.definition, this.tick * FIXED_DELTA)));
+    }
     for (const player of this.players.values()) {
       this.previousPositions.set(player.id, this.itemRacer(player).position);
       this.preparePlayerStep(player, now);
@@ -257,19 +324,21 @@ export class SimulationSystem {
     for (const player of this.players.values()) {
       this.finishPlayerStep(player, now);
     }
+    this.slipstreams.step(this.world, this.players.values(), FIXED_DELTA);
     this.items.step(FIXED_DELTA, [...this.players.values()].map((player) => this.itemRacer(player)), this.tick);
     for (const event of this.items.snapshot().events) {
       if (event.tick !== this.tick || event.kind !== "hit") continue;
       const player = this.players.get(event.playerId);
       const physics = this.physicsPlayers.get(event.playerId);
       if (!player || !physics) continue;
-      player.stunt = createStuntState();
+      player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(player.kart.yaw);
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
       player.spinOutRemaining = ITEM_CONFIG.hitLockSeconds;
       player.impactRevision += 1;
       player.impactKind = "item";
+      interruptSlipstream(player.slipstream);
       physics.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     }
     rankPlayers([...this.players.values()]);
@@ -289,6 +358,7 @@ export class SimulationSystem {
       elapsedTime: Math.max(0, ...ordered.map((player) => player.race.elapsedTime)),
       players: ordered.map((player) => this.playerSnapshot(player, now)),
       items: this.items.snapshot(),
+      bridge: this.track.bridge ? { ...this.bridgeState } : undefined,
       finishRemaining: this.finishDeadlineTick === null ? null
         : Math.max(0, (this.finishDeadlineTick - this.tick) / NETWORK_CONFIG.simulationRateHz),
     };
@@ -307,7 +377,7 @@ export class SimulationSystem {
   private itemRacer(player: ServerPlayerState): ItemRacer {
     const translation = this.physicsPlayers.get(player.id)?.body.translation();
     const position: Point2 = [translation?.x ?? 0, translation?.z ?? 0];
-    return { id: player.id, position, previousPosition: this.previousPositions.get(player.id) ?? position,
+    return { id: player.id, position, height: (translation?.y ?? KART_START.position[1]) - KART_START.position[1], previousPosition: this.previousPositions.get(player.id) ?? position,
       yaw: player.kart.yaw, eligible: this.phase === "racing" && player.status === "racing" &&
         player.connection === "connected" && player.race.respawn.protectionRemaining === 0 };
   }
@@ -326,8 +396,10 @@ export class SimulationSystem {
     if (!player || !physics) {
       return false;
     }
-    player.stunt = createStuntState();
+    player.stunt = createStuntState(this.track.id === "taipei");
     player.kart = createInitialKartState(yaw);
+    player.slipstream = createSlipstreamState();
+    this.slipstreams.remove(id);
     player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
     physics.body.setTranslation({ x: position[0], y: position[1], z: position[2] }, true);
@@ -346,6 +418,7 @@ export class SimulationSystem {
     this.previousPositions.clear();
     this.contactVelocities.clear();
     this.bots.clear();
+    this.slipstreams.reset();
     this.eventQueue.free();
     this.world.free();
   }
@@ -365,34 +438,45 @@ export class SimulationSystem {
       (item?.lockRemaining ?? 0) === 0 && player.race.respawn.protectionRemaining === 0;
     const bot = this.bots.get(player.id);
     const position = physics.body.translation();
+    const activeRoad = sampleDrivingSurface(position.x, position.z, this.track, this.surface, position.y - KART_START.position[1], this.bridgeState.locked).routeIndex ?? 0;
+    const handling = courseHandling(this.track.id, this.surface, canDrive && !player.stunt.active && Math.abs(position.y - this.surface.height - KART_START.position[1]) < .8, player.kart.yaw, this.tick * FIXED_DELTA);
+    const botRoute = activeRoad > 0 ? this.botBranches[activeRoad - 1] : this.track.race.RACE_ROUTE_SAMPLES;
     const input = canDrive ? (!bot ? this.input.read(player.id, now)
       : botInput(position.x, position.z, player.kart.yaw, player.kart.speed, bot.lane,
         [...this.players.values()].flatMap((other) => {
           const point = this.physicsPlayers.get(other.id)?.body.translation();
           return point && other.id !== player.id && other.status === "racing"
             ? [{ x: point.x, z: point.z, speed: other.kart.speed }] : [];
-        }), this.track.race.RACE_ROUTE_SAMPLES, !item?.held ? this.items.availableBoxes() : [])) : EMPTY_KART_INPUT;
+        }), botRoute, !item?.held ? this.items.availableBoxes() : [], position.y - KART_START.position[1], this.track.id === "taipei" ? player.kart.drift : undefined,
+        this.slipstreams.pursuit(this.world, player))) : EMPTY_KART_INPUT;
     if (bot) bot.input = input;
     if (canDrive && bot && item?.held && this.tick % BOT_CONFIG.itemIntervalTicks === 0) {
       this.useItem(player.id, item.revision);
     }
-    const boost = canDrive && (item?.boostRemaining ?? 0) > 0
-      ? { acceleration: ITEM_CONFIG.boostAcceleration, maximumSpeed: ITEM_CONFIG.boostMaximumSpeed } : undefined;
+    const boostingItem = canDrive && (item?.boostRemaining ?? 0) > 0;
+    const boostingDraft = canDrive && input.brake === 0 && player.slipstream.boostRemaining > 0;
+    const boost = boostingItem || boostingDraft ? {
+      acceleration: Math.max(boostingItem ? ITEM_CONFIG.boostAcceleration : 0, boostingDraft ? SLIPSTREAM_CONFIG.boostAcceleration : 0),
+      maximumSpeed: Math.max(boostingItem ? ITEM_CONFIG.boostMaximumSpeed : 0, boostingDraft ? SLIPSTREAM_CONFIG.boostMaximumSpeed : 0),
+    } : undefined;
     const airInput = player.stunt.active ? { ...input, drift: false, steer: input.steer * STUNT_CONFIG.airSteering } : input;
-    const next = stepKartSimulation(player.kart, airInput, FIXED_DELTA, boost).state;
+    updateStuntTrick(player.stunt, input.drift, canDrive, FIXED_DELTA);
+    if (player.stunt.active) player.kart = { ...player.kart, drift: { ...player.kart.drift, active:false, direction:0, charge:0, chargeTier:0 } };
+    const next = stepKartSimulation(player.kart, airInput, FIXED_DELTA, boost, handling).state;
     player.kart = player.spinOutRemaining > 0
       ? { ...next, yaw: next.yaw + FIXED_DELTA * 8.5 }
       : next;
     player.lateralSpeed = player.wallReboundRemaining > 0 ? player.lateralSpeed * Math.exp(-3 * FIXED_DELTA) : getKartLateralSpeed(
       player.lateralSpeed,
       player.kart.speed,
-      input.steer,
+      getDriftSteering(player.kart.drift, input.steer),
       player.kart.drift.active,
       FIXED_DELTA,
+      handling,
     );
 
     const forward = getKartForward(player.kart.yaw);
-    const right = { x: forward.z, z: -forward.x };
+    const right = { x: -forward.z, z: forward.x };
     const launched = stepStuntLaunch(player.stunt, position.x, position.y, position.z,
       player.kart.yaw, player.kart.speed, this.track.ramps, canDrive, FIXED_DELTA);
     const surface = player.stunt.active ? null : this.constrainToRoad(physics.body);
@@ -402,7 +486,7 @@ export class SimulationSystem {
     physics.body.setLinvel(
       {
         x: vx,
-        y: launched ? STUNT_CONFIG.launchSpeed : surface ? vx * surface.gradientX + vz * surface.gradientZ : physics.body.linvel().y,
+        y: launched ? player.stunt.launchSpeed : surface ? vx * surface.gradientX + vz * surface.gradientZ : physics.body.linvel().y,
         z: vz,
       },
       true,
@@ -417,9 +501,9 @@ export class SimulationSystem {
 
   private constrainToRoad(body: RigidBody) {
     const position = body.translation();
-    const surface = applyRampSurface(position.x, position.z, this.track.ramps, sampleTrackSurface(position.x, position.z, this.track.samples, this.surface));
+    const surface = applyRampSurface(position.x, position.z, this.track.ramps, sampleDrivingSurface(position.x, position.z, this.track, this.surface, position.y - KART_START.position[1], this.bridgeState.locked));
     const target = surface.height + KART_START.position[1];
-    if (surface.distance > TRACK_CONFIG.roadWidth / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || (position.y - target > KART_CONFIG.grounding.snapDistance || target - position.y > 2)) return null;
+    if (surface.distance > (surface.width ?? TRACK_CONFIG.roadWidth) / 2 + TRACK_CONFIG.curbWidth + TRACK_CONFIG.guardRail.gap || (position.y - target > KART_CONFIG.grounding.snapDistance || target - position.y > 2)) return null;
     body.setTranslation({ x: position.x, y: target, z: position.z }, true);
     return surface;
   }
@@ -434,11 +518,11 @@ export class SimulationSystem {
       player.kart.speed, this.track.ramps, this.phase === "racing" && player.status === "racing" &&
       player.connection === "connected" && player.spinOutRemaining === 0, 0)) {
       const velocity = physics.body.linvel();
-      physics.body.setLinvel({ x: velocity.x, y: STUNT_CONFIG.launchSpeed, z: velocity.z }, true);
+      physics.body.setLinvel({ x: velocity.x, y: player.stunt.launchSpeed, z: velocity.z }, true);
     }
-    const road = sampleTrackSurface(point.x, point.z, this.track.samples, this.surface);
+    const road = sampleDrivingSurface(point.x, point.z, this.track, this.surface, point.y - KART_START.position[1], this.bridgeState.locked);
     if (finishStunt(player.stunt, point.y - road.height - KART_START.position[1], physics.body.linvel().y, road.distance)) {
-      player.kart = applyStuntBoost(player.kart);
+      if (player.stunt.trickSucceeded) player.kart = applyStuntBoost(player.kart);
     }
     if (!player.stunt.active) this.constrainToRoad(physics.body);
     const velocity = physics.body.linvel();
@@ -447,6 +531,14 @@ export class SimulationSystem {
       ...player.kart,
       speed: velocity.x * forward.x + velocity.z * forward.z,
     };
+    // Read the solver's sideways response back before the next driving step.
+    player.lateralSpeed = -velocity.x * forward.z + velocity.z * forward.x;
+    const item = this.items.getPlayer(player.id);
+    const input = this.bots.get(player.id)?.input ?? this.input.read(player.id, now);
+    this.slipstreams.update(player, physics.body.translation(), road,
+      this.phase === "racing" && player.status === "racing" && player.connection === "connected" &&
+      player.spinOutRemaining === 0 && (item?.lockRemaining ?? 0) === 0 &&
+      player.race.respawn.protectionRemaining === 0 && input.brake === 0, input.steer);
 
     if (player.status !== "racing") {
       return;
@@ -472,20 +564,25 @@ export class SimulationSystem {
     }
     if (result.state.phase === "FINISHED") {
       player.status = "finished";
+      this.slipstreams.remove(player.id);
+      player.slipstream = createSlipstreamState();
       this.items.clearPlayer(player.id, this.tick, [position.x, position.z]);
-      player.stunt = createStuntState();
+      player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(player.kart.yaw);
       physics.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       physics.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
       physics.collider.setSensor(true);
+      physics.contactCollider.setSensor(true);
       this.finishDeadlineTick ??= this.tick + ITEM_CONFIG.finishGraceSeconds * NETWORK_CONFIG.simulationRateHz;
     }
     if (result.respawn) {
+      this.slipstreams.remove(player.id);
+      player.slipstream = createSlipstreamState();
       const pose = result.respawn.pose;
       const point: Point2 = [pose.position[0], pose.position[2]];
       this.items.clearPlayer(player.id, this.tick, point, true);
       this.previousPositions.set(player.id, point);
-      player.stunt = createStuntState();
+      player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(pose.yaw);
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
@@ -510,22 +607,8 @@ export class SimulationSystem {
         return;
       }
       if (firstTag.kind === "player" && secondTag.kind === "player") {
-        const firstPlayer = this.players.get(firstTag.playerId);
-        const secondPlayer = this.players.get(secondTag.playerId);
-        const firstPhysics = this.physicsPlayers.get(firstTag.playerId);
-        const secondPhysics = this.physicsPlayers.get(secondTag.playerId);
-        if (!firstPlayer || !secondPlayer || !firstPhysics || !secondPhysics) {
-          return;
-        }
-        // Classify the approach speed, before Rapier's solver removes the impact velocity.
-        const firstVelocity = this.contactVelocities.get(firstPlayer.id) ?? firstPhysics.body.linvel();
-        const secondVelocity = this.contactVelocities.get(secondPlayer.id) ?? secondPhysics.body.linvel();
-        const relativeSpeed = this.contactApproachSpeed(first, second,
-          firstVelocity.x - secondVelocity.x,
-          firstVelocity.z - secondVelocity.z,
-        );
-        this.applyImpact(firstPlayer, relativeSpeed, "kart");
-        this.applyImpact(secondPlayer, relativeSpeed, "kart");
+        // Kart pairs are resolved below on every actual contact, including a
+        // continuing contact that emits no new collision-start event.
         return;
       }
       const playerTag = firstTag.kind === "player" ? firstTag : secondTag.kind === "player" ? secondTag : null;
@@ -545,9 +628,10 @@ export class SimulationSystem {
           });
           const rebound = resolveWallCollision({ velocity, normal, time: this.tick * FIXED_DELTA, lastReactionTime: -Infinity });
           if (!rebound.reacted) return;
+          interruptSlipstream(player.slipstream);
           physics.body.setLinvel({ ...rebound.velocity, y: physics.body.linvel().y }, true);
           const forward = getKartForward(player.kart.yaw);
-          player.lateralSpeed = rebound.velocity.x * forward.z - rebound.velocity.z * forward.x;
+          player.lateralSpeed = -rebound.velocity.x * forward.z + rebound.velocity.z * forward.x;
           player.wallReboundRemaining = KART_CONFIG.collision.reboundSeconds;
           player.impactRevision += 1;
           player.impactKind = "wall";
@@ -555,42 +639,57 @@ export class SimulationSystem {
         }
       }
     });
+    this.processKartContacts();
   }
 
-  private applyImpact(player: ServerPlayerState, relativeSpeed: number, kind: ImpactKind) {
+  private processKartContacts() {
+    for (const [firstId, first] of this.physicsPlayers) for (const [secondId, second] of this.physicsPlayers) {
+      if (first.contactCollider.handle >= second.contactCollider.handle) continue;
+      const firstPlayer = this.players.get(firstId), secondPlayer = this.players.get(secondId);
+      if (this.phase !== "racing" || !firstPlayer || !secondPlayer || firstPlayer.status !== "racing" || secondPlayer.status !== "racing") continue;
+      let normal: { x: number; z: number } | null = null;
+      let deepest = 0.08;
+      const firstPoint = first.body.translation(), secondPoint = second.body.translation();
+      this.world.contactPair(first.contactCollider, second.contactCollider, manifold => {
+        for (let i = 0; i < manifold.numSolverContacts(); i++) {
+          const distance = manifold.solverContactDist(i);
+          if (distance > deepest) continue;
+          const candidate = manifold.normal();
+          if (Math.hypot(candidate.x, candidate.z) < 0.2) continue;
+          const orientation = candidate.x * (secondPoint.x - firstPoint.x) + candidate.z * (secondPoint.z - firstPoint.z) >= 0 ? 1 : -1;
+          normal = { x: candidate.x * orientation, z: candidate.z * orientation };
+          deepest = distance;
+        }
+      });
+      if (!normal) continue;
+      const result = resolveKartCollision({ normal,
+        firstVelocity: this.contactVelocities.get(firstId) ?? first.body.linvel(),
+        secondVelocity: this.contactVelocities.get(secondId) ?? second.body.linvel(),
+        resolvedFirstVelocity: first.body.linvel(), resolvedSecondVelocity: second.body.linvel() });
+      if (!result) continue;
+      interruptSlipstream(firstPlayer.slipstream);
+      interruptSlipstream(secondPlayer.slipstream);
+      first.body.setLinvel({ ...result.firstVelocity, y: first.body.linvel().y }, true);
+      second.body.setLinvel({ ...result.secondVelocity, y: second.body.linvel().y }, true);
+      firstPlayer.wallReboundRemaining = NETWORK_CONFIG.collision.reboundSeconds;
+      secondPlayer.wallReboundRemaining = NETWORK_CONFIG.collision.reboundSeconds;
+      if (result.impact) {
+        this.applyImpact(firstPlayer, "kart");
+        this.applyImpact(secondPlayer, "kart");
+      }
+    }
+  }
+
+  private applyImpact(player: ServerPlayerState, kind: ImpactKind) {
     if (player.collisionCooldown > 0 || player.status !== "racing" ||
       player.race.respawn.protectionRemaining > 0 || (this.items.getPlayer(player.id)?.immunityRemaining ?? 0) > 0) {
       return;
-    }
-    const response = getCollisionResponse(relativeSpeed);
-    const body = this.physicsPlayers.get(player.id)?.body;
-    if (body) {
-      // Retain Rapier's push-apart direction and apply damping to its resolved velocity.
-      // finishPlayerStep reads this velocity back into the Arcade state.
-      const velocity = body.linvel();
-      body.setLinvel({
-        x: velocity.x * response.speedRetention,
-        y: velocity.y,
-        z: velocity.z * response.speedRetention,
-      }, true);
-      player.lateralSpeed *= response.speedRetention;
     }
     // Ordinary contact pushes and slows the kart without taking away steering.
     // Only item hits set spinOutRemaining and grant item recovery protection.
     player.impactRevision += 1;
     player.impactKind = kind;
     player.collisionCooldown = NETWORK_CONFIG.collision.eventCooldownSeconds;
-  }
-
-  private contactApproachSpeed(first: number, second: number, x: number, z: number) {
-    const firstCollider = this.world.getCollider(first);
-    const secondCollider = this.world.getCollider(second);
-    if (!firstCollider || !secondCollider) return 0;
-    let speed = 0;
-    this.world.contactPair(firstCollider, secondCollider, (manifold) => {
-      speed = Math.max(speed, getNormalImpactSpeed(x, z, manifold.normal()));
-    });
-    return speed;
   }
 
   private finishIfComplete() {
@@ -601,7 +700,8 @@ export class SimulationSystem {
       for (const player of this.players.values()) {
         if (player.status !== "racing") continue;
         player.status = "dnf";
-        player.stunt = createStuntState();
+        player.slipstream = createSlipstreamState();
+        player.stunt = createStuntState(this.track.id === "taipei");
         player.kart = createInitialKartState(player.kart.yaw);
         player.spinOutRemaining = 0;
         this.input.neutralize(player.id);
@@ -610,6 +710,7 @@ export class SimulationSystem {
         physics?.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
         physics?.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
         physics?.collider.setSensor(true);
+        physics?.contactCollider.setSensor(true);
       }
       rankPlayers([...this.players.values()]);
     }
@@ -629,6 +730,7 @@ export class SimulationSystem {
       id: player.id,
       nickname: player.nickname,
       color: player.color,
+      characterId: player.characterId,
       connection: player.connection,
       status: player.status,
       position: [position.x, position.y, position.z],
@@ -638,6 +740,7 @@ export class SimulationSystem {
       drifting: player.kart.drift.active,
       driftTier: player.kart.drift.chargeTier,
       turboTier: player.kart.drift.turboTier,
+      slipstream: slipstreamSnapshot(player.slipstream),
       spinOutRemaining: player.spinOutRemaining,
       stuntProgress: stuntProgress(player.stunt),
       impactRevision: player.impactRevision,
@@ -656,8 +759,9 @@ export class SimulationSystem {
     [...this.players.values()].forEach((player, index) => {
       const pose = gridPose(index, this.players.size, this.track.race.FINISH_MARKER);
       const physics = this.physicsPlayers.get(player.id);
-      player.stunt = createStuntState();
+      player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(pose.yaw);
+      player.slipstream = createSlipstreamState();
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
       player.rank = index + 1;
@@ -674,10 +778,10 @@ export class SimulationSystem {
     const ground = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     this.world.createCollider(
       RAPIER.ColliderDesc.cuboid(
-        TRACK_CONFIG.ground.width / 2,
-        TRACK_CONFIG.ground.thickness / 2,
-        TRACK_CONFIG.ground.depth / 2,
-      ).setTranslation(0, -TRACK_CONFIG.ground.thickness / 2, 0),
+        this.track.ground.width / 2,
+        this.track.ground.thickness / 2,
+        this.track.ground.depth / 2,
+      ).setTranslation(this.track.ground.centerX, -this.track.ground.thickness / 2, this.track.ground.centerZ),
       ground,
     );
     this.world.createCollider(
@@ -685,10 +789,44 @@ export class SimulationSystem {
         .setFriction(0),
       ground,
     );
+    for (const branch of this.track.branches) {
+      if (branch.movable && this.track.bridge) {
+        const bridge = this.track.bridge;
+        for (const part of [bridge.geometries[0],bridge.geometries[2]]) {
+          const mesh = part.DRIVABLE_MESH_DATA;
+          this.world.createCollider(RAPIER.ColliderDesc.trimesh(mesh.vertices,mesh.indices,RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0),ground);
+        }
+        const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(...bridge.pivot));
+        this.world.createCollider(RAPIER.ColliderDesc.trimesh(bridge.mesh.vertices,bridge.mesh.indices,RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0),body);
+        for (const rail of bridge.geometries[1].GUARD_RAIL_SEGMENTS) {
+          const collider=this.world.createCollider(RAPIER.ColliderDesc.cuboid(rail.size[0]/2,rail.size[1]/2,rail.size[2]/2)
+            .setTranslation(rail.position[0]-bridge.pivot[0],rail.position[1],rail.position[2]-bridge.pivot[2])
+            .setRotation(yawRotation(rail.rotationY,rail.rotationZ)).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS).setFriction(0).setRestitution(.12),body);
+          this.colliderTags.set(collider.handle,{kind:"guard"});
+        }
+        this.bridgeBody=body;
+        this.bridgeGates=bridge.gates.map(gate=>{
+          const gateBody=this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(gate.position[0],gate.position[1]-4,gate.position[2]).setRotation(yawRotation(gate.yaw)));
+          const collider=this.world.createCollider(RAPIER.ColliderDesc.cuboid(3,1,.25).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS).setFriction(0).setRestitution(.12),gateBody);
+          this.colliderTags.set(collider.handle,{kind:"guard"});return gateBody;
+        });
+        continue;
+      }
+      const mesh = branch.geometry.DRIVABLE_MESH_DATA;
+      this.world.createCollider(RAPIER.ColliderDesc.trimesh(mesh.vertices, mesh.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0), ground);
+    }
+    {
+      const definition = createParkObstacle(this.track.race.RACE_ROUTE_SAMPLES, this.track.id, this.track.branches.find(branch => branch.id === "taipei-crossing")?.samples);
+      const pose = parkObstaclePose(definition, 0);
+      const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pose.x, pose.y, pose.z).setRotation(yawRotation(definition.yaw)));
+      const collider = this.world.createCollider(RAPIER.ColliderDesc.cuboid(definition.dimensions.halfWidth, definition.dimensions.halfHeight, definition.dimensions.halfLength).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS).setFriction(0).setRestitution(.12), body);
+      this.colliderTags.set(collider.handle, { kind: "guard" });
+      this.parkObstacle = { body, definition };
+    }
     // Arcade adhesion follows the road and ramp slopes. Solid vertical curb
     // faces would snag the karts; outer guards provide the collision boundary.
 
-    for (const segment of this.track.geometry.GUARD_RAIL_SEGMENTS) {
+    for (const segment of [...this.track.geometry.GUARD_RAIL_SEGMENTS, ...this.track.branches.flatMap(branch => branch.movable && this.track.bridge ? [...this.track.bridge.geometries[0].GUARD_RAIL_SEGMENTS,...this.track.bridge.geometries[2].GUARD_RAIL_SEGMENTS] : branch.geometry.GUARD_RAIL_SEGMENTS)]) {
       const body = this.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed()
           .setTranslation(...segment.position)

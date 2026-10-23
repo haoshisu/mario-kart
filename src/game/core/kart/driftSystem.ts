@@ -10,6 +10,7 @@ export type DriftUpdate = Readonly<{
 export function createInitialDriftState(): DriftState {
   return {
     active: false,
+    direction: 0,
     charge: 0,
     chargeTier: 0,
     turboRemaining: 0,
@@ -46,9 +47,12 @@ export function updateDriftState(
     absoluteSpeed >= KART_CONFIG.driftMinimumSpeed &&
     Math.abs(input.steer) >= KART_CONFIG.driftMinimumSteer;
   const staysActive = current.active && absoluteSpeed >= KART_CONFIG.driftMinimumSpeed;
-  const active = input.drift && (canStart || staysActive);
-  const released = current.active && !input.drift;
-  const charge = active ? current.charge + dt : 0;
+  const active = input.drift && input.brake === 0 && (canStart || staysActive);
+  const direction = active ? (current.active ? current.direction : input.steer < 0 ? -1 : 1) : 0;
+  const released = current.active && !input.drift && input.brake === 0 && absoluteSpeed >= KART_CONFIG.driftMinimumSpeed;
+  const validTurn = direction * input.steer >= KART_CONFIG.driftMinimumSteer;
+  const chargeRate = KART_CONFIG.driftArc.minimumChargeRate + (1 - KART_CONFIG.driftArc.minimumChargeRate) * Math.min(1, Math.abs(input.steer));
+  const charge = active ? current.charge + (validTurn ? dt * chargeRate : 0) : 0;
   const chargeTier = active ? getDriftChargeTier(charge) : 0;
   const turboTierTriggered = released ? current.chargeTier : 0;
   const turboTriggered = turboTierTriggered > 0;
@@ -67,6 +71,7 @@ export function updateDriftState(
   return {
     state: {
       active,
+      direction,
       charge,
       chargeTier,
       turboRemaining,
@@ -75,4 +80,12 @@ export function updateDriftState(
     turboTriggered,
     turboTierTriggered,
   };
+}
+
+/** Countersteer opens the arc without flipping the established drift side. */
+export function getDriftSteering(drift: DriftState, steer: number) {
+  if (!drift.active) return Math.max(-1, Math.min(1, steer));
+  const aligned = Math.max(-1, Math.min(1, steer * drift.direction));
+  const arc = KART_CONFIG.driftArc;
+  return drift.direction * (arc.neutral + aligned * (aligned < 0 ? arc.neutral - arc.outer : arc.inner - arc.neutral));
 }
