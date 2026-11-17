@@ -1,7 +1,8 @@
 import { GUARD_RAIL_SEGMENTS } from "../../track/trackGeometry";
 import { ProjectileSystem } from "./ProjectileSystem";
-import { BOOST_PADS, ITEM_BOXES, ITEM_CONFIG, ITEM_KINDS, type ItemKind } from "./itemConfig";
+import { BOOST_PADS, ITEM_BOXES, ITEM_CONFIG, type ItemKind } from "./itemConfig";
 import { createItemState, receiveItemHit, tickItemEffects } from "./ItemEffects";
+import { rollItemKind } from "./itemOdds";
 import type { ItemEvent, ItemEventKind, ItemRacer, ItemState, ItemWorldSnapshot, TrapState } from "./itemTypes";
 import type { Point2 } from "../race/raceTrack";
 
@@ -135,7 +136,7 @@ export class ItemSystem {
       for (const box of this.placements.ITEM_BOXES) {
         if ((state.held && state.reserve) || state.cooldown > 0 || (this.boxes.get(box.id) ?? 0) > this.time ||
           (racer.height !== undefined && Math.abs(racer.height - box.height) > 1.2) || distance(box.position) > ITEM_CONFIG.pickupRadius) continue;
-        const kind = ITEM_KINDS[Math.floor(this.random() * ITEM_KINDS.length)];
+        const kind = rollItemKind(this.random(), racer.rank, racer.racerCount);
         if (state.held) state.reserve = kind;
         else state.held = kind;
         state.revision += 1;

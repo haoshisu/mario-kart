@@ -38,6 +38,8 @@ import type {
 import type { ServerPlayerState } from "../state/roomState";
 import { resolveKartCollision, getNormalImpactSpeed } from "./CollisionSystem";
 import { InputSystem } from "./InputSystem";
+import { botPaceBonus, shouldBotUseItem } from "./botTactics";
+import { routeLength } from "../../src/game/track/trackPlacement";
 import { botInput } from "./BotDriver";
 import { BOT_CONFIG } from "./botConfig";
 import { SlipstreamSystem } from "./SlipstreamSystem";
@@ -104,10 +106,14 @@ export class SimulationSystem {
   private raceSeed: number;
   private finishDeadlineTick: number | null = null;
   private disposed = false;
-  private readonly bots = new Map<string, { lane: number; input: KartInput }>();
+  private readonly bots = new Map<string, { lane: number; input: KartInput; heldRevision: number; heldSinceTick: number }>();
+  private readonly lapLength: number;
+  /** Best human race score this tick; CPUs pace themselves against it. */
+  private leadingHumanScore: number | null = null;
 
   constructor(seed = Math.floor(Math.random() * 0x100000000), trackId: TrackId = "meadow") {
     this.track = getTrackData(trackId);
+    this.lapLength = routeLength(this.track.race.RACE_ROUTE_SAMPLES);
     this.raceSeed = seed;
     this.botBranches = this.track.branches.map(branch => {
       const main = this.track.race.RACE_ROUTE_SAMPLES;
@@ -179,7 +185,7 @@ export class SimulationSystem {
       rank: this.players.size + 1,
     });
     this.input.addPlayer(id);
-    if (botLane !== undefined) this.bots.set(id, { lane: botLane, input: EMPTY_KART_INPUT });
+    if (botLane !== undefined) this.bots.set(id, { lane: botLane, input: EMPTY_KART_INPUT, heldRevision: -1, heldSinceTick: 0 });
     this.items.addPlayer(id);
     this.contactVelocities.set(id, { x: 0, z: 0 });
     this.repositionGrid();
@@ -313,6 +319,11 @@ export class SimulationSystem {
       this.parkObstacle.body.setNextKinematicTranslation(parkObstaclePose(this.parkObstacle.definition, this.tick * FIXED_DELTA, this.obstaclePose));
       this.parkObstacle.body.setNextKinematicRotation(yawRotation(parkObstacleYaw(this.parkObstacle.definition, this.tick * FIXED_DELTA)));
     }
+    this.leadingHumanScore = null;
+    for (const player of this.players.values()) {
+      if (this.bots.has(player.id) || player.connection !== "connected") continue;
+      this.leadingHumanScore = Math.max(this.leadingHumanScore ?? -Infinity, player.race.progress.rankingScore);
+    }
     for (const player of this.players.values()) {
       this.previousPositions.set(player.id, this.itemRacer(player).position);
       this.preparePlayerStep(player, now);
@@ -332,14 +343,17 @@ export class SimulationSystem {
       const physics = this.physicsPlayers.get(event.playerId);
       if (!player || !physics) continue;
       player.stunt = createStuntState(this.track.id === "taipei");
-      player.kart = createInitialKartState(player.kart.yaw);
+      // Lose drift/turbo and most momentum, but slide instead of stopping dead.
+      const retained = Math.max(0, player.kart.speed) * ITEM_CONFIG.hitSpeedRetention;
+      player.kart = { ...createInitialKartState(player.kart.yaw), speed: retained };
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
       player.spinOutRemaining = ITEM_CONFIG.hitLockSeconds;
       player.impactRevision += 1;
       player.impactKind = "item";
       interruptSlipstream(player.slipstream);
-      physics.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      const hitForward = getKartForward(player.kart.yaw);
+      physics.body.setLinvel({ x: hitForward.x * retained, y: 0, z: hitForward.z * retained }, true);
     }
     rankPlayers([...this.players.values()]);
     this.finishIfComplete();
@@ -374,11 +388,22 @@ export class SimulationSystem {
       [...this.players.values()].map((candidate) => this.itemRacer(candidate))) : false;
   }
 
+  private botOpponents(id: string) {
+    const opponents: { x: number; z: number; height: number }[] = [];
+    for (const other of this.players.values()) {
+      if (other.id === id || other.status !== "racing") continue;
+      const point = this.physicsPlayers.get(other.id)?.body.translation();
+      if (point) opponents.push({ x: point.x, z: point.z, height: point.y });
+    }
+    return opponents;
+  }
+
   private itemRacer(player: ServerPlayerState): ItemRacer {
     const translation = this.physicsPlayers.get(player.id)?.body.translation();
     const position: Point2 = [translation?.x ?? 0, translation?.z ?? 0];
     return { id: player.id, position, height: (translation?.y ?? KART_START.position[1]) - KART_START.position[1], previousPosition: this.previousPositions.get(player.id) ?? position,
-      yaw: player.kart.yaw, eligible: this.phase === "racing" && player.status === "racing" &&
+      yaw: player.kart.yaw, rank: player.rank, racerCount: this.players.size,
+      eligible: this.phase === "racing" && player.status === "racing" &&
         player.connection === "connected" && player.race.respawn.protectionRemaining === 0 };
   }
 
@@ -430,6 +455,7 @@ export class SimulationSystem {
     }
     player.wallReboundRemaining = Math.max(0, player.wallReboundRemaining - FIXED_DELTA);
     player.collisionCooldown = Math.max(0, player.collisionCooldown - FIXED_DELTA);
+    const spinDelta = Math.min(player.spinOutRemaining, FIXED_DELTA);
     player.spinOutRemaining = Math.max(0, player.spinOutRemaining - FIXED_DELTA);
 
     const item = this.items.getPlayer(player.id);
@@ -441,6 +467,7 @@ export class SimulationSystem {
     const activeRoad = sampleDrivingSurface(position.x, position.z, this.track, this.surface, position.y - KART_START.position[1], this.bridgeState.locked).routeIndex ?? 0;
     const handling = courseHandling(this.track.id, this.surface, canDrive && !player.stunt.active && Math.abs(position.y - this.surface.height - KART_START.position[1]) < .8, player.kart.yaw, this.tick * FIXED_DELTA);
     const botRoute = activeRoad > 0 ? this.botBranches[activeRoad - 1] : this.track.race.RACE_ROUTE_SAMPLES;
+    const pace = bot ? botPaceBonus(player.race.progress.rankingScore, this.leadingHumanScore, this.lapLength) : 0;
     const input = canDrive ? (!bot ? this.input.read(player.id, now)
       : botInput(position.x, position.z, player.kart.yaw, player.kart.speed, bot.lane,
         [...this.players.values()].flatMap((other) => {
@@ -448,23 +475,34 @@ export class SimulationSystem {
           return point && other.id !== player.id && other.status === "racing"
             ? [{ x: point.x, z: point.z, speed: other.kart.speed }] : [];
         }), botRoute, !item?.held ? this.items.availableBoxes() : [], position.y - KART_START.position[1], this.track.id === "taipei" ? player.kart.drift : undefined,
-        this.slipstreams.pursuit(this.world, player))) : EMPTY_KART_INPUT;
-    if (bot) bot.input = input;
-    if (canDrive && bot && item?.held && this.tick % BOT_CONFIG.itemIntervalTicks === 0) {
-      this.useItem(player.id, item.revision);
+        this.slipstreams.pursuit(this.world, player), pace)) : EMPTY_KART_INPUT;
+    if (bot) {
+      bot.input = input;
+      if (item?.held && item.revision !== bot.heldRevision) { bot.heldRevision = item.revision; bot.heldSinceTick = this.tick; }
+      if (canDrive && item?.held && this.tick % BOT_CONFIG.itemDecisionTicks === 0 && shouldBotUseItem({
+        kind: item.held, heldSeconds: (this.tick - bot.heldSinceTick) * FIXED_DELTA,
+        x: position.x, z: position.z, height: position.y, yaw: player.kart.yaw, steer: input.steer,
+        boosting: item.boostRemaining > 0, shielded: item.shieldRemaining > 0,
+        opponents: this.botOpponents(player.id),
+      })) this.useItem(player.id, item.revision);
     }
     const boostingItem = canDrive && (item?.boostRemaining ?? 0) > 0;
     const boostingDraft = canDrive && input.brake === 0 && player.slipstream.boostRemaining > 0;
-    const boost = boostingItem || boostingDraft ? {
+    // A trailing CPU may exceed the normal top speed; this never adds thrust.
+    const catchingUp = canDrive && pace > 0 && input.brake === 0;
+    const boost = boostingItem || boostingDraft || catchingUp ? {
       acceleration: Math.max(boostingItem ? ITEM_CONFIG.boostAcceleration : 0, boostingDraft ? SLIPSTREAM_CONFIG.boostAcceleration : 0),
-      maximumSpeed: Math.max(boostingItem ? ITEM_CONFIG.boostMaximumSpeed : 0, boostingDraft ? SLIPSTREAM_CONFIG.boostMaximumSpeed : 0),
+      maximumSpeed: Math.max(boostingItem ? ITEM_CONFIG.boostMaximumSpeed : 0, boostingDraft ? SLIPSTREAM_CONFIG.boostMaximumSpeed : 0,
+        catchingUp ? KART_CONFIG.maxForwardSpeed + pace : 0),
     } : undefined;
     const airInput = player.stunt.active ? { ...input, drift: false, steer: input.steer * STUNT_CONFIG.airSteering } : input;
     updateStuntTrick(player.stunt, input.drift, canDrive, FIXED_DELTA);
     if (player.stunt.active) player.kart = { ...player.kart, drift: { ...player.kart.drift, active:false, direction:0, charge:0, chargeTier:0 } };
     const next = stepKartSimulation(player.kart, airInput, FIXED_DELTA, boost, handling).state;
-    player.kart = player.spinOutRemaining > 0
-      ? { ...next, yaw: next.yaw + FIXED_DELTA * 8.5 }
+    const spinning = spinDelta > 0;
+    // Exactly one full turn over the lock so the kart faces its travel direction again.
+    player.kart = spinning
+      ? { ...next, yaw: next.yaw + spinDelta * Math.PI * 2 / ITEM_CONFIG.hitLockSeconds }
       : next;
     player.lateralSpeed = player.wallReboundRemaining > 0 ? player.lateralSpeed * Math.exp(-3 * FIXED_DELTA) : getKartLateralSpeed(
       player.lateralSpeed,
@@ -481,8 +519,13 @@ export class SimulationSystem {
       player.kart.yaw, player.kart.speed, this.track.ramps, canDrive, FIXED_DELTA);
     const surface = player.stunt.active ? null : this.constrainToRoad(physics.body);
     physics.body.setRotation(surface ? roadQuaternion(player.kart.yaw, surface) : yawRotation(player.kart.yaw), true);
-    const vx = forward.x * player.kart.speed + right.x * player.lateralSpeed;
-    const vz = forward.z * player.kart.speed + right.z * player.lateralSpeed;
+    // While spinning, slide along the pre-hit travel direction instead of the spinning nose.
+    const travel = spinning ? physics.body.linvel() : null;
+    const travelSpeed = travel ? Math.hypot(travel.x, travel.z) : 0;
+    const vx = travel ? (travelSpeed > 1e-3 ? travel.x / travelSpeed * player.kart.speed : 0)
+      : forward.x * player.kart.speed + right.x * player.lateralSpeed;
+    const vz = travel ? (travelSpeed > 1e-3 ? travel.z / travelSpeed * player.kart.speed : 0)
+      : forward.z * player.kart.speed + right.z * player.lateralSpeed;
     physics.body.setLinvel(
       {
         x: vx,
@@ -529,7 +572,9 @@ export class SimulationSystem {
     const forward = getKartForward(player.kart.yaw);
     player.kart = {
       ...player.kart,
-      speed: velocity.x * forward.x + velocity.z * forward.z,
+      // A spinning kart's nose is not its travel direction; keep the slide speed.
+      speed: player.spinOutRemaining > 0 ? Math.max(0, Math.hypot(velocity.x, velocity.z))
+        : velocity.x * forward.x + velocity.z * forward.z,
     };
     // Read the solver's sideways response back before the next driving step.
     player.lateralSpeed = -velocity.x * forward.z + velocity.z * forward.x;

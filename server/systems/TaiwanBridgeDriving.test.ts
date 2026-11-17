@@ -3,6 +3,9 @@ import {beforeAll,expect,it} from "vitest";
 import {SimulationSystem} from "./SimulationSystem";
 import {botInput} from "./BotDriver";
 import {sampleTrackSurface} from "../../src/game/track/trackSurface";
+import {BOT_CONFIG} from "./botConfig";
+
+const SCRIPTED_PACE=14-BOT_CONFIG.cruiseSpeed;
 
 beforeAll(async()=>{await RAPIER.init();});
 it("drives the timed reward bridge with normal input, collects boost and completes a legal lap",()=>{
@@ -17,7 +20,8 @@ it("drives the timed reward bridge with normal input, collects boost and complet
       const snapshot=simulation.getSnapshot(),player=snapshot.players[0],now=simulation.getTick()*1000/60;
       const surface=sampleTrackSurface(player.position[0],player.position[2],branch.samples,undefined,{closed:false,height:player.position[1]-.52});
       if(surface.distance<2 && (surface.progress??0)>.35 && (surface.progress??0)<.65){visited=true;turbo ||= player.item.boostRemaining>0;held ||= (snapshot.bridge?.elapsed??0)>=12 && snapshot.bridge?.angle===0;}
-      const input=botInput(player.position[0],player.position[2],player.yaw,player.speed,0,[],route,[],player.position[1]-.52);
+      // Scripted driver keeps the original 14 m/s cruise so it reaches the deck while the hold window is open.
+      const input=botInput(player.position[0],player.position[2],player.yaw,player.speed,0,[],route,[],player.position[1]-.52,undefined,undefined,SCRIPTED_PACE);
       simulation.input.receive("driver",{sequence:simulation.getTick(),sentAt:now,input},now);simulation.step(now);
       if(player.completedLaps>=1)break;
     }

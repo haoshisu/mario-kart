@@ -29,6 +29,9 @@ export type ItemRacer = Readonly<{
   yaw: number;
   eligible: boolean;
   height?: number;
+  /** Current race placement; when present, item drops are placement-weighted. */
+  rank?: number;
+  racerCount?: number;
 }>;
 export type TrapState = Readonly<{
   id: string;

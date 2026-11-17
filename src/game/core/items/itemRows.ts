@@ -5,7 +5,8 @@ import { TRACK_CONFIG } from "../../track/trackConfig";
 import { roadOrientation, sampleTrackSurface } from "../../track/trackSurface";
 
 export const ITEM_ROW_CONFIG = {
-  targetSpacing: 110, minimumRows: 6, maximumRows: 10, minimumSpacing: 45,
+  // Fewer rows make each supply gate a decision instead of a constant refill.
+  targetSpacing: 175, minimumRows: 4, maximumRows: 7, minimumSpacing: 45,
   firstRowDistance: 40, finishClearance: 25, edgeClearance: .65,
   maximumColumnSpacing: 1.25, minimumColumns: 4,
   rampApproachClearance: 8, rampLandingClearance: 68, obstacleClearance: 16,

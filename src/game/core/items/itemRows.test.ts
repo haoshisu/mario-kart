@@ -5,13 +5,14 @@ import { routeLength } from "../../track/trackPlacement";
 import { sampleTrackSurface } from "../../track/trackSurface";
 import { ITEM_CONFIG } from "./itemConfig";
 import { ItemSystem } from "./ItemSystem";
+import { ITEM_ROW_CONFIG } from "./itemRows";
 import type { ItemRacer } from "./itemTypes";
 
 describe.each(TRACK_IDS)("%s full-width item supply", id => {
   const track = getTrackData(id), boxes = track.items.ITEM_BOXES;
   const rows = [...new Set(boxes.map(box => box.row))].map(row => boxes.filter(box => box.row === row));
-  it("offers frequent readable rows, reaches both road edges and covers every driving line", () => {
-    expect(rows.length).toBeGreaterThanOrEqual(6); expect(rows.length).toBeLessThanOrEqual(10);
+  it("offers a few readable rows per lap, reaches both road edges and covers every driving line", () => {
+    expect(rows.length).toBeGreaterThanOrEqual(ITEM_ROW_CONFIG.minimumRows); expect(rows.length).toBeLessThanOrEqual(ITEM_ROW_CONFIG.maximumRows);
     expect(new Set(boxes.map(box => box.id)).size).toBe(boxes.length);
     for (const row of rows) {
       expect(row.length).toBeGreaterThanOrEqual(4);
@@ -32,7 +33,7 @@ describe.each(TRACK_IDS)("%s full-width item supply", id => {
     for (let i = 0; i < rows.length; i++) {
       const next = rows[(i + 1) % rows.length][0].rowDistance + (i === rows.length - 1 ? length : 0);
       const gap = next - rows[i][0].rowDistance;
-      expect(gap).toBeGreaterThan(40); expect(gap).toBeLessThan(200);
+      expect(gap).toBeGreaterThan(ITEM_ROW_CONFIG.minimumSpacing); expect(gap).toBeLessThan(260);
     }
   });
   it("lets four side-by-side racers actually collect from one row and restores each used box", () => {

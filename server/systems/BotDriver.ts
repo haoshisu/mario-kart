@@ -8,7 +8,7 @@ import { TRACK_CONFIG } from "../../src/game/track/trackConfig";
 // Pure pursuit produces intent only; the ordinary Arcade/Rapier/Checkpoint pipeline owns motion.
 export function botInput(x: number, z: number, yaw: number, speed: number, lane: number,
   obstacles: readonly { x: number; z: number; speed: number }[] = [], route: readonly RaceRouteSample[] = RACE_ROUTE_SAMPLES, pickups: readonly { position: readonly [number, number]; height?: number }[] = [], height?: number, driftState?: DriftState,
-  draftIntent?: Readonly<{ position: readonly [number, number, number] | null; ready: boolean; boosting: boolean }>): KartInput {
+  draftIntent?: Readonly<{ position: readonly [number, number, number] | null; ready: boolean; boosting: boolean }>, pace = 0): KartInput {
   let nearest = 0;
   let distanceSquared = Infinity;
   for (let index = 0; index < route.length; index += 1) {
@@ -51,8 +51,19 @@ export function botInput(x: number, z: number, yaw: number, speed: number, lane:
   const turnRate = KART_CONFIG.steeringRate * Math.min(1, velocity / KART_CONFIG.steeringFullSpeed);
   let steer = Math.abs(error) > 1 ? -Math.sign(error)
     : -2 * velocity * Math.sin(error) / (Math.max(1, Math.hypot(dx, dz)) * turnRate);
-  const targetSpeed = Math.abs(error) > 0.9 ? BOT_CONFIG.recoverySpeed
-    : Math.abs(error) > 0.45 ? BOT_CONFIG.cornerSpeed : draftIntent?.boosting ? SLIPSTREAM_CONFIG.boostMaximumSpeed : BOT_CONFIG.cruiseSpeed;
+  // Pace shifts both the straight and corner targets so catch-up stays smooth.
+  const cruise = BOT_CONFIG.cruiseSpeed + pace;
+  let targetSpeed = Math.abs(error) > 0.9 ? BOT_CONFIG.recoverySpeed
+    : Math.abs(error) > 0.45 ? BOT_CONFIG.cornerSpeed + pace / 2 : draftIntent?.boosting ? Math.max(cruise, SLIPSTREAM_CONFIG.boostMaximumSpeed) : cruise;
+  // A faster CPU must not rear-end the kart it drafts: hold the gap until it has
+  // either charged and swung beside the leader, so the pass stays a pass.
+  if (draftIntent?.position) {
+    const ax = draftIntent.position[0] - x, az = draftIntent.position[2] - z;
+    const sideways = Math.abs(ax * Math.cos(yaw) - az * Math.sin(yaw));
+    if (Math.hypot(ax, az) < SLIPSTREAM_CONFIG.minimumGap + BOT_CONFIG.draft.holdMargin && sideways < SLIPSTREAM_CONFIG.halfWidth + BOT_CONFIG.draft.holdMargin) {
+      targetSpeed = Math.min(targetSpeed, speed - .5);
+    }
+  }
   const brake = speed > targetSpeed + 1 ? 1 : 0;
   const drifting = driftState !== undefined && driftState.turboRemaining === 0 && driftState.charge < KART_CONFIG.driftTiers[0].chargeTime + BOT_CONFIG.drift.releaseMargin && Math.abs(steer) <= KART_CONFIG.driftArc.inner * KART_CONFIG.driftSteeringMultiplier && brake === 0 && speed >= BOT_CONFIG.drift.minimumSpeed && Math.abs(error) < BOT_CONFIG.drift.maximumError &&
     (driftState.active ? Math.sign(steer) === driftState.direction && Math.abs(steer) >= BOT_CONFIG.drift.exitSteer : Math.abs(steer) >= BOT_CONFIG.drift.enterSteer);

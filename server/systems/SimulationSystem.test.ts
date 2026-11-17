@@ -5,11 +5,23 @@ import { CHECKPOINTS, FINISH_MARKER, type RaceMarker } from "../../src/game/core
 import { NETWORK_CONFIG, PLAYER_COLORS } from "../../src/game/network/networkConfig";
 import { GUARD_RAIL_SEGMENTS } from "../../src/game/track/trackGeometry";
 import { SimulationSystem } from "./SimulationSystem";
-import { ITEM_BOXES, ITEM_CONFIG, ITEM_KINDS } from "../../src/game/core/items/itemConfig";
+import { ITEM_BOXES, ITEM_CONFIG, type ItemKind } from "../../src/game/core/items/itemConfig";
+import { rollItemKind } from "../../src/game/core/items/itemOdds";
 import { KART_START } from "../../src/game/core/kart/kartConfig";
 import { createSeededRandom } from "../../src/game/core/items/ItemSystem";
 
 const FIXED_MILLISECONDS = 1_000 / NETWORK_CONFIG.simulationRateHz;
+
+/** Drops are placement-weighted: find a seed whose consecutive draws give these kinds at these ranks. */
+function seedForDrops(drops: readonly Readonly<{ kind: ItemKind; rank: number }>[], racerCount = 2) {
+  for (let seed = 1; seed < 100_000; seed += 1) {
+    const random = createSeededRandom(seed);
+    if (drops.every(drop => rollItemKind(random(), drop.rank, racerCount) === drop.kind)) return seed;
+  }
+  throw new Error("Missing deterministic item seed");
+}
+const rankOf = (simulation: SimulationSystem, id: string, now: number) =>
+  simulation.getSnapshot(now).players.find(player => player.id === id)?.rank;
 
 function placeForCrossing(
   simulation: SimulationSystem,
@@ -83,38 +95,36 @@ describe("SimulationSystem", () => {
   });
 
   it.each(["disc", "orb"] as const)("resolves %s damage through the authoritative simulation", (kind) => {
-    let seed = 1;
-    while (ITEM_KINDS[Math.floor(createSeededRandom(seed)() * ITEM_KINDS.length)] !== kind) seed++;
-    const simulation = new SimulationSystem(seed);
+    // Leaders never draw orbs, so the orb owner starts behind (grid slot and ID tie-break).
+    const ownerRank = kind === "orb" ? 2 : 1, owner = kind === "orb" ? "zed-owner" : "owner";
+    const simulation = new SimulationSystem(seedForDrops([{ kind, rank: ownerRank }]));
     try {
-      simulation.addPlayer("owner", "Owner", "coral");
-      simulation.addPlayer("victim", "Victim", "sun");
+      if (ownerRank === 2) simulation.addPlayer("victim", "Victim", "sun");
+      simulation.addPlayer(owner, "Owner", "coral");
+      if (ownerRank === 1) simulation.addPlayer("victim", "Victim", "sun");
       simulation.start();
       let now = 1000;
       while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
       const box = ITEM_BOXES[0];
-      simulation.resetPlayerPose("owner", [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
+      simulation.resetPlayerPose(owner, [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
+      expect(rankOf(simulation, owner, now)).toBe(ownerRank);
       simulation.step(now += FIXED_MILLISECONDS);
-      const held = simulation.getSnapshot(now).players.find((player) => player.id === "owner")!.item;
+      const held = simulation.getSnapshot(now).players.find((player) => player.id === owner)!.item;
       expect(held.held).toBe(kind);
-      simulation.resetPlayerPose("owner", [-10, KART_START.position[1], -10.5], -Math.PI / 2);
+      simulation.resetPlayerPose(owner, [-10, KART_START.position[1], -10.5], -Math.PI / 2);
       simulation.resetPlayerPose("victim", [-4, KART_START.position[1], -10.5], -Math.PI / 2);
-      expect(simulation.useItem("owner", held.revision)).toBe(true);
+      expect(simulation.useItem(owner, held.revision)).toBe(true);
       expect(simulation.getSnapshot(now).items.projectiles).toHaveLength(1);
       for (let tick = 0; tick < 20; tick++) simulation.step(now += FIXED_MILLISECONDS);
       const snapshot = simulation.getSnapshot(now);
       expect(snapshot.items.projectiles).toHaveLength(0);
       expect(snapshot.players.find((player) => player.id === "victim")?.spinOutRemaining).toBeGreaterThan(0);
-      expect(snapshot.items.events).toContainEqual(expect.objectContaining({ kind: "hit", item: kind, sourceId: "owner", playerId: "victim" }));
+      expect(snapshot.items.events).toContainEqual(expect.objectContaining({ kind: "hit", item: kind, sourceId: owner, playerId: "victim" }));
     } finally { simulation.dispose(); }
   });
+  const TRAP_OWNER_RANK = 1, SHIELD_VICTIM_RANK = 2;
   it.each(["hit", "shield", "disconnect"] as const)("resolves a real trap and %s through authoritative snapshots", (scenario) => {
-    let seed = 1;
-    for (; seed < 100_000; seed += 1) {
-      const random = createSeededRandom(seed);
-      if (Math.floor(random() * ITEM_KINDS.length) === 2 && Math.floor(random() * ITEM_KINDS.length) === 1) break;
-    }
-    const simulation = new SimulationSystem(seed);
+    const simulation = new SimulationSystem(seedForDrops([{ kind: "trap", rank: TRAP_OWNER_RANK }, { kind: "shield", rank: SHIELD_VICTIM_RANK }]));
     try {
       simulation.addPlayer("owner", "Owner", "coral");
       simulation.addPlayer("victim", "Victim", "sun");
@@ -123,6 +133,7 @@ describe("SimulationSystem", () => {
       while (simulation.getPhase() === "countdown") simulation.step(now += FIXED_MILLISECONDS);
       const box = ITEM_BOXES[1];
       simulation.resetPlayerPose("owner", [box.position[0], box.height + KART_START.position[1], box.position[1]], box.yaw);
+      expect(rankOf(simulation, "owner", now)).toBe(TRAP_OWNER_RANK);
       simulation.step(now += FIXED_MILLISECONDS);
       const owner = simulation.getSnapshot(now).players.find((player) => player.id === "owner");
       expect(owner?.item.held).toBe("trap");
@@ -131,6 +142,7 @@ describe("SimulationSystem", () => {
       if (scenario === "shield") {
         const shieldBox = ITEM_BOXES[5];
         simulation.resetPlayerPose("victim", [shieldBox.position[0], shieldBox.height + KART_START.position[1], shieldBox.position[1]], shieldBox.yaw);
+        expect(rankOf(simulation, "victim", now)).toBe(SHIELD_VICTIM_RANK);
         simulation.step(now += FIXED_MILLISECONDS);
         const victim = simulation.getSnapshot(now).players.find((player) => player.id === "victim");
         expect(victim?.item.held).toBe("shield");
