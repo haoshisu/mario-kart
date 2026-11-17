@@ -4,6 +4,7 @@ import { Countdown, countdownCue } from "./Countdown";
 import type { HostRoomPhase } from "../network/useHostRoom";
 import type { RaceSnapshot } from "../network/protocol";
 import { ItemEventFeedback, ItemStatus } from "./ItemStatus";
+import { RaceTensionBanner } from "./RaceTensionBanner";
 
 type MultiplayerHudProps = {
   snapshot: RaceSnapshot | null;
@@ -83,6 +84,7 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
         ))}
       </ol>
       <ItemEventFeedback snapshot={snapshot} />
+      <RaceTensionBanner snapshot={snapshot} playerId={playerId} />
       <PersonalFinishNotice snapshot={snapshot} playerId={playerId} />
       {snapshot.phase === "racing" && snapshot.finishRemaining !== null ?
         <p className="finish-deadline" role="status">首位已完賽 · 剩餘 {Math.ceil(snapshot.finishRemaining)} 秒，逾時記為 DNF</p> : null}

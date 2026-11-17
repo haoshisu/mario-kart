@@ -16,6 +16,7 @@ import type { TrackMeshData, createTrackGeometry } from "../track/trackGeometry"
 import { MEADOW_PARK_SECTIONS } from "../track/meadowPark";
 import { TRACK_CONFIG } from "../track/trackConfig";
 import { TaipeiCrossing } from "./TaipeiCrossing";
+import { RoughStrips } from "./RoughStrips";
 import { useTrack } from "../track/TrackContext";
 
 function createBufferGeometry(data: TrackMeshData) {
@@ -190,6 +191,7 @@ export function Track({ snapshotsRef }: { snapshotsRef?: RefObject<SnapshotBuffe
       <RoadSurface data={track.geometry} />
       <Curbs data={track.geometry} />
       <GuardRails data={track.geometry} />
+      <RoughStrips />
       {track.branches.filter(branch=>!branch.movable).map(branch => <group key={branch.id}>
         <RoadSurface data={branch.geometry} color="#454b50" />
         <Curbs data={branch.geometry} />

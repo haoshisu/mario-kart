@@ -61,17 +61,19 @@ describe("RaceRoom", () => {
 
   it("isolates selected tracks across simultaneous rooms and rejects controller overrides", async () => {
     const client = new Client(endpoint);
-    const harbor = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "harbor" });
-    const canyon = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "canyon" });
-    harbor.onMessage("*", () => undefined);
-    canyon.onMessage("*", () => undefined);
+    const taipei = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "taipei" });
+    const tainan = await client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "tainan" });
+    taipei.onMessage("*", () => undefined);
+    tainan.onMessage("*", () => undefined);
     let phone: Room | undefined;
     try {
       await expect(client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "unknown" })).rejects.toBeTruthy();
-      await expect(client.joinById(harbor.roomId, { ...playerOptions(0), trackId: "canyon" })).rejects.toBeTruthy();
-      phone = await client.joinById(harbor.roomId, playerOptions(0));
+      // Retired non-city courses are no longer offered.
+      await expect(client.create(NETWORK_CONFIG.roomType, { ...hostOptions, trackId: "meadow" })).rejects.toBeTruthy();
+      await expect(client.joinById(taipei.roomId, { ...playerOptions(0), trackId: "tainan" })).rejects.toBeTruthy();
+      phone = await client.joinById(taipei.roomId, playerOptions(0));
       phone.onMessage("*", () => undefined);
-      for (const [room, id] of [[harbor, "harbor"], [canyon, "canyon"], [phone, "harbor"]] as const) {
+      for (const [room, id] of [[taipei, "taipei"], [tainan, "tainan"], [phone, "taipei"]] as const) {
         const status = nextMessage<RoomStatusMessage>(room, ROOM_MESSAGE.roomStatus);
         const snapshot = nextMessage<RaceSnapshot>(room, ROOM_MESSAGE.snapshot);
         room.send(ROOM_MESSAGE.requestStatus);
@@ -80,8 +82,8 @@ describe("RaceRoom", () => {
       }
     } finally {
       await phone?.leave();
-      await harbor.leave();
-      await canyon.leave();
+      await taipei.leave();
+      await tainan.leave();
     }
   });
 

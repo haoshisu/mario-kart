@@ -6,6 +6,7 @@ const TONES: Readonly<Record<RaceSound, readonly number[]>> = {
   pickup: [740, 988], use: [330, 660], hit: [170, 90], immune: [988, 1318], boost: [220, 440], collision: [110],
   drift1: [440, 554], drift2: [554, 698], drift3: [698, 880, 1109], crossing: [880, 660],
   draftReady: [660, 990, 1320], draftBoost: [330, 660, 990],
+  finalLap: [784, 988, 784, 988, 1175, 1568], rankUp: [660, 990], rankDown: [330, 247], lock: [1318, 988, 1318, 988],
 };
 
 /** Original synthesized cues. Context is constructed only after a user gesture. */

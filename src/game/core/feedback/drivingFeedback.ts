@@ -1,5 +1,6 @@
-import { ITEM_LABELS, type ItemKind } from "../items/itemConfig";
+import { ITEM_CONFIG, ITEM_LABELS, type ItemKind } from "../items/itemConfig";
 import type { ItemEvent } from "../items/itemTypes";
+import { isHazardSource } from "../items/roadHazards";
 import type { PlayerSnapshot } from "../../network/protocol";
 import { NETWORK_CONFIG } from "../../network/networkConfig";
 
@@ -19,10 +20,21 @@ export function drivingFeedback(player: FeedbackPlayer, events: readonly ItemEve
   const hit = recent.findLast(event => event.kind === "hit");
   const immune = recent.findLast(event => event.kind === "immune");
   const item = player.item;
+  if (item.lockRemaining > 0 && hit && isHazardSource(hit.sourceId)) {
+    return { key: `hit-${hit.id}`, title: "踩到油漬！", tone: "hit", kind: null, detail: "打滑中，稍後恢復", remaining: item.lockRemaining };
+  }
   if (item.lockRemaining > 0) {
     const source = racers.find(racer => racer.id === hit?.sourceId)?.nickname;
     return { key: `hit-${hit?.id ?? "active"}`, title: "受到攻擊！", tone: "hit", kind: hit?.item ?? null,
       detail: hit?.item ? `${source ?? "對手"}・${ITEM_LABELS[hit.item]}` : "暫時失去操控，稍後恢復", remaining: item.lockRemaining };
+  }
+  // A lock stays on screen for the whole warning, longer than ordinary event banners.
+  const lock = events.findLast(event => event.kind === "lock" && event.playerId === player.id && tick >= event.tick &&
+    tick - event.tick < ITEM_CONFIG.cometWarningSeconds * NETWORK_CONFIG.simulationRateHz);
+  if (lock && item.lockRemaining === 0) {
+    const source = racers.find(racer => racer.id === lock.sourceId)?.nickname;
+    return { key: `lock-${lock.id}`, title: "被追星彗光鎖定！", tone: "hit", kind: "comet",
+      detail: `${source ?? "對手"}發動・${item.shieldRemaining > 0 ? "護盾可抵擋" : "快用護盾！"}` };
   }
   if (immune) return { key: `immune-${immune.id}`, title: immune.item === "shield" ? "護盾成功抵擋！" : "恢復保護・免受攻擊",
     detail: "繼續保持路線", kind: "shield", tone: "defense" };

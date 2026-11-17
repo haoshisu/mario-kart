@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TRACK_CATALOG, TRACK_IDS } from "./trackCatalog";
+import { TRACK_CATALOG, TRACK_IDS, PLAYABLE_TRACK_IDS } from "./trackCatalog";
 import { createTrackSamples } from "./trackPath";
 import { getTrackPreview } from "./trackPreview";
 import { TrackPicker } from "../components/TrackPicker";
@@ -9,8 +9,10 @@ import { TrackPicker } from "../components/TrackPicker";
 vi.mock("./trackData", () => ({ getTrackData: () => { throw new Error("Preview must not construct complete track data"); } }));
 
 it("renders all selection cards without building gameplay geometry", () => {
-  const markup = renderToStaticMarkup(createElement(TrackPicker, { value: "meadow", onChange: () => {} }));
-  expect(markup.match(/<svg /g)).toHaveLength(TRACK_IDS.length);
+  const markup = renderToStaticMarkup(createElement(TrackPicker, { value: "taipei", onChange: () => {} }));
+  // Only the city series is offered.
+  expect(markup.match(/<svg /g)).toHaveLength(PLAYABLE_TRACK_IDS.length);
+  expect(markup).not.toContain("風車花谷");
   expect(markup).toContain("府城暖巷");
   expect(markup).toContain("aria-pressed=\"true\"");
 });

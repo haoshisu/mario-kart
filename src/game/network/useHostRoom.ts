@@ -1,7 +1,7 @@
 "use client";
 
 import { DEFAULT_CHARACTER, type CharacterId } from "../entities/characters";
-import type { TrackId } from "../track/trackCatalog";
+import { DEFAULT_TRACK_ID, type TrackId } from "../track/trackCatalog";
 
 import { createSnapshotDiagnostics } from "./snapshotDiagnostics";
 import { Client, type Room } from "@colyseus/sdk";
@@ -41,7 +41,7 @@ export type HostRoomState = Readonly<{
 
 const INITIAL_STATE: HostRoomState = {
   mode: "multiplayer",
-  trackId: "meadow",
+  trackId: DEFAULT_TRACK_ID,
   playerId: null,
   phase: "idle",
   roomId: null,
@@ -178,7 +178,7 @@ export function useHostRoom(): {
     }));
   }, []);
 
-  const createRoom = useCallback(async (mode: RoomMode = "multiplayer", hostPlays = true, trackId: TrackId = "meadow", characterId: CharacterId = DEFAULT_CHARACTER) => {
+  const createRoom = useCallback(async (mode: RoomMode = "multiplayer", hostPlays = true, trackId: TrackId = DEFAULT_TRACK_ID, characterId: CharacterId = DEFAULT_CHARACTER) => {
     if (roomRef.current || creationRef.current) {
       return;
     }

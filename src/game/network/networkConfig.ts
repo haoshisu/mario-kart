@@ -1,5 +1,5 @@
 export const NETWORK_CONFIG = {
-  protocolVersion: 24,
+  protocolVersion: 25,
   roomType: "race",
   serverPort: 2567,
   minimumPlayers: 2,

@@ -1,4 +1,5 @@
 import { ItemIcon } from "./ItemIcon";
+import { isHazardSource } from "../core/items/roadHazards";
 import { ITEM_LABELS } from "../core/items/itemConfig";
 import type { ItemState } from "../core/items/itemTypes";
 import type { RaceSnapshot } from "../network/protocol";
@@ -29,9 +30,10 @@ export function ItemEventFeedback({ snapshot, playerId }: { snapshot: RaceSnapsh
       const item = event.item ? ITEM_LABELS[event.item] : "";
       const text = event.kind === "pickup" ? `${name} 取得 ${item}`
         : event.kind === "use" ? `${name} 使用 ${item}`
-        : event.kind === "hit" ? `${name} 被 ${source} 的${item}擊中`
+        : event.kind === "hit" ? (isHazardSource(event.sourceId) ? `${name} 踩到路面油漬打滑` : `${name} 被 ${source} 的${item}擊中`)
         : event.kind === "immune" ? `${name} ${event.item === "shield" ? "護盾抵擋" : "恢復保護"}（${source}）`
         : event.kind === "respawn" ? `${name} 已重生`
+        : event.kind === "lock" ? `${name} 被 ${source} 的${item}鎖定`
         : `${name} 加速中`;
       return <p key={event.id} data-event-kind={event.kind}>{text}</p>;
     })}

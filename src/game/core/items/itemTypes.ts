@@ -12,7 +12,8 @@ export type ItemState = {
   immunityRemaining: number;
 };
 
-export type ItemEventKind = "pickup" | "use" | "hit" | "immune" | "boost" | "respawn";
+/** `lock` warns a racer that a leader strike is incoming (sourceId is the attacker). */
+export type ItemEventKind = "pickup" | "use" | "hit" | "immune" | "boost" | "respawn" | "lock";
 export type ItemEvent = Readonly<{
   id: number;
   tick: number;

@@ -1,4 +1,4 @@
-import { TRACK_IDS, type TrackId } from "../track/trackCatalog";
+import { PLAYABLE_TRACK_IDS as TRACK_IDS, type TrackId } from "../track/trackCatalog";
 import { parsePracticeRecord, practiceRecordKey, type PracticeRecord } from "../core/race/practiceRecords";
 import type { PracticeRecords } from "../core/race/practiceTour";
 

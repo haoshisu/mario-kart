@@ -6,9 +6,9 @@ import { ITEM_KINDS, type ItemKind } from "./itemConfig";
  * Rows are weights for ITEM_KINDS order; each row only needs relative values.
  */
 export const ITEM_ODDS: Readonly<Record<"front" | "middle" | "back", Readonly<Record<ItemKind, number>>>> = {
-  front: { boost: 5, shield: 35, trap: 35, disc: 25, orb: 0 },
-  middle: { boost: 20, shield: 15, trap: 20, disc: 25, orb: 20 },
-  back: { boost: 45, shield: 5, trap: 0, disc: 10, orb: 40 },
+  front: { boost: 5, shield: 35, trap: 35, disc: 25, orb: 0, comet: 0 },
+  middle: { boost: 20, shield: 15, trap: 20, disc: 25, orb: 17, comet: 3 },
+  back: { boost: 42, shield: 5, trap: 0, disc: 8, orb: 33, comet: 12 },
 };
 
 export function itemOddsBand(rank: number, racerCount: number) {

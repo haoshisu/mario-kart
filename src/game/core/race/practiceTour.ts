@@ -1,7 +1,9 @@
-import { TRACK_IDS, type TrackId } from "../../track/trackCatalog";
+import { PLAYABLE_TRACK_IDS, type TrackId } from "../../track/trackCatalog";
 import type { PracticeRecord } from "./practiceRecords";
 
-export const TAIWAN_TOUR_TRACKS: readonly TrackId[] = ["taipei", "jiufen", "kaohsiung", "alishan", "tainan", "taichung"];
+// The tour covers every playable city; both counts track the same five courses.
+const TRACK_IDS: readonly TrackId[] = PLAYABLE_TRACK_IDS;
+export const TAIWAN_TOUR_TRACKS: readonly TrackId[] = PLAYABLE_TRACK_IDS;
 export type PracticeRecords = Readonly<Partial<Record<TrackId, PracticeRecord>>>;
 
 export function getPracticeTour(records: PracticeRecords, selected: TrackId) {

@@ -3,6 +3,7 @@
 import { RaceResults, PersonalFinishNotice } from "../components/RaceResults";
 import { Countdown, countdownCue } from "../components/Countdown";
 import { DrivingGuide } from "../components/DrivingGuide";
+import { RaceTensionBanner } from "../components/RaceTensionBanner";
 import { RaceAudioControls } from "../components/RaceAudioControls";
 import dynamic from "next/dynamic";
 import { SnapshotBuffer } from "./interpolation";
@@ -11,6 +12,7 @@ import { useNetworkKeyboard } from "../input/useNetworkKeyboard";
 import { CharacterPicker } from "../components/CharacterPicker";
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId, type CharacterId } from "../entities/characters";
 import { createSnapshotDiagnostics } from "./snapshotDiagnostics";
+import { DEFAULT_TRACK_ID } from "../track/trackCatalog";
 import { InputSender } from "./inputSender";
 import { ControllerItemPanel } from "./ControllerItemPanel";
 
@@ -87,7 +89,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
   const [roomStatus, setRoomStatus] = useState<RoomStatusMessage>({
     mode: "multiplayer",
-    trackId: "meadow",
+    trackId: DEFAULT_TRACK_ID,
     host: "disconnected",
     phase: "lobby",
     players: [],
@@ -472,6 +474,7 @@ export function MobileController({ roomId }: MobileControllerProps) {
       ) : null}
 
       <PersonalFinishNotice snapshot={snapshot} playerId={currentPlayerId} />
+      <RaceTensionBanner snapshot={snapshot} playerId={currentPlayerId} />
       {roomStatus.phase === "finished" ? (
         <ControllerResult currentPlayerId={currentPlayerId} snapshot={snapshot} />
       ) : null}

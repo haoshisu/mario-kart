@@ -110,6 +110,8 @@ export class SimulationSystem {
   private readonly bots = new Map<string, { lane: number; input: KartInput; heldRevision: number; heldSinceTick: number }>();
   private readonly lapLength: number;
   private readonly totalLaps: number;
+  /** Road slicks look like stopped karts to the CPU pursuit, so it changes lane around them. */
+  private readonly hazardObstacles: readonly { x: number; z: number; speed: number }[];
   /** Best human race score this tick; CPUs pace themselves against it. */
   private leadingHumanScore: number | null = null;
 
@@ -117,6 +119,7 @@ export class SimulationSystem {
     this.track = getTrackData(trackId);
     this.lapLength = routeLength(this.track.race.RACE_ROUTE_SAMPLES);
     this.totalLaps = battleLapsForLength(this.lapLength);
+    this.hazardObstacles = (this.track.items.ROAD_HAZARDS ?? []).map(hazard => ({ x: hazard.position[0], z: hazard.position[1], speed: 0 }));
     this.raceSeed = seed;
     this.botBranches = this.track.branches.map(branch => {
       const main = this.track.race.RACE_ROUTE_SAMPLES;
@@ -468,7 +471,7 @@ export class SimulationSystem {
     const bot = this.bots.get(player.id);
     const position = physics.body.translation();
     const activeRoad = sampleDrivingSurface(position.x, position.z, this.track, this.surface, position.y - KART_START.position[1], this.bridgeState.locked).routeIndex ?? 0;
-    const handling = courseHandling(this.track.id, this.surface, canDrive && !player.stunt.active && Math.abs(position.y - this.surface.height - KART_START.position[1]) < .8, player.kart.yaw, this.tick * FIXED_DELTA);
+    const handling = courseHandling(this.track.id, this.surface, canDrive && !player.stunt.active && Math.abs(position.y - this.surface.height - KART_START.position[1]) < .8, player.kart.yaw, this.tick * FIXED_DELTA, this.track.roughZones);
     // CPUs cannot judge whether a timed (movable) route will still be open when they
     // reach its gate, so they always rejoin the main road rather than queue at a closed gate.
     const botRoute = activeRoad > 0 && !this.track.branches[activeRoad - 1]?.movable
@@ -480,7 +483,7 @@ export class SimulationSystem {
           const point = this.physicsPlayers.get(other.id)?.body.translation();
           return point && other.id !== player.id && other.status === "racing"
             ? [{ x: point.x, z: point.z, speed: other.kart.speed }] : [];
-        }), botRoute, !item?.held ? this.items.availableBoxes() : [], position.y - KART_START.position[1], this.track.id === "taipei" ? player.kart.drift : undefined,
+        }).concat(this.hazardObstacles), botRoute, !item?.held ? this.items.availableBoxes() : [], position.y - KART_START.position[1], this.track.id === "taipei" ? player.kart.drift : undefined,
         this.slipstreams.pursuit(this.world, player), pace)) : EMPTY_KART_INPUT;
     if (bot) {
       bot.input = input;

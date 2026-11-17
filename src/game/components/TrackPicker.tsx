@@ -1,4 +1,4 @@
-import { TRACK_CATALOG, TRACK_IDS, type TrackId } from "../track/trackCatalog";
+import { PLAYABLE_TRACK_IDS, TRACK_CATALOG, type TrackId } from "../track/trackCatalog";
 import { getTrackPreview } from "../track/trackPreview";
 import type { PracticeRecords } from "../core/race/practiceTour";
 import { formatRaceTime } from "./RaceHud";
@@ -8,7 +8,7 @@ export function TrackPicker({ value, onChange, records }: { value: TrackId; onCh
   const selected = TRACK_CATALOG[value];
   return <div className={styles.picker}>
     <div className={styles.grid} role="group" aria-label="選擇賽道">
-      {TRACK_IDS.map((id) => {
+      {PLAYABLE_TRACK_IDS.map((id) => {
         const track = TRACK_CATALOG[id];
         const preview = getTrackPreview(id);
         return <button key={id} type="button" aria-pressed={id === value} onClick={() => onChange(id)}

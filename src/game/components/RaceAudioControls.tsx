@@ -33,9 +33,9 @@ export function RaceAudioControls({ snapshot, roomId, playerId, runtimeRef, prac
   useEffect(() => { cues.current = new RaceSoundCues(); }, [roomId]);
   useEffect(() => {
     if (!snapshot) return;
-    const sounds = cues.current.collect(snapshot);
+    const sounds = cues.current.collect(snapshot, playerId);
     if (enabled && !document.hidden) for (const sound of sounds) if (sound !== "boost") audio.current?.play(sound);
-  }, [snapshot, enabled]);
+  }, [snapshot, enabled, playerId]);
   useEffect(() => {
     if (!enabled) return;
     const drivingCues = new DrivingSoundCues();

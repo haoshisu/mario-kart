@@ -174,7 +174,7 @@ export function KartBody({
     }
     const coursePosition = body.translation();
     const road = sampleDrivingSurface(coursePosition.x, coursePosition.z, track, courseSurface.current, coursePosition.y - KART_START.position[1], trackRuntimeRef.current.bridge?.locked);
-    const handling = courseHandling(track.id, road, canDrive && !stunt.current.active && Math.abs(coursePosition.y - road.height - KART_START.position[1]) < .8, simulationRef.current.yaw, trackRuntimeRef.current.seconds);
+    const handling = courseHandling(track.id, road, canDrive && !stunt.current.active && Math.abs(coursePosition.y - road.height - KART_START.position[1]) < .8, simulationRef.current.yaw, trackRuntimeRef.current.seconds, track.roughZones);
     updateStuntTrick(stunt.current, effectiveInput.drift, canDrive, KART_CONFIG.fixedTimeStep);
     if (stunt.current.active) simulationRef.current = { ...simulationRef.current, drift: { ...simulationRef.current.drift, active:false, direction:0, charge:0, chargeTier:0 } };
     const step = stepKartSimulation(

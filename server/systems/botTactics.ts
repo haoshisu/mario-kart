@@ -54,6 +54,9 @@ export function shouldBotUseItem(context: BotItemContext) {
       return (behind < config.trapThreatDistance && behindAlignment > config.trapAlignment) || context.heldSeconds > config.trapHold;
     case "disc":
       return (ahead < config.discRange && aheadAlignment > config.discAlignment) || context.heldSeconds > config.discHold;
+    case "comet":
+      // Always worth firing: it targets the best-placed rival wherever they are.
+      return true;
     case "orb":
       return (ahead < ITEM_CONFIG.orbTargetRange && aheadAlignment >= ITEM_CONFIG.orbForwardCone) || context.heldSeconds > config.orbHold;
   }

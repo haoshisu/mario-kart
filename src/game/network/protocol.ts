@@ -1,5 +1,5 @@
 import { isCharacterId, type CharacterId } from "../entities/characters";
-import { isTrackId, type TrackId } from "../track/trackCatalog";
+import { isPlayableTrackId, type TrackId } from "../track/trackCatalog";
 import { EMPTY_KART_INPUT, type KartInput } from "../core/kart/kartTypes";
 import { NETWORK_CONFIG, PLAYER_COLORS, type PlayerColor } from "./networkConfig";
 import type { ItemState, ItemWorldSnapshot } from "../core/items/itemTypes";
@@ -242,7 +242,7 @@ export function isRoomJoinOptions(value: unknown): value is RoomJoinOptions {
     (value.mode === undefined || (value.role === "host" &&
       (value.mode === "multiplayer" || value.mode === "solo-keyboard" || value.mode === "solo-phone"))) &&
     (value.hostPlays === undefined || (value.role === "host" && typeof value.hostPlays === "boolean")) &&
-    (value.trackId === undefined || (value.role === "host" && isTrackId(value.trackId))) &&
+    (value.trackId === undefined || (value.role === "host" && isPlayableTrackId(value.trackId))) &&
     value.protocolVersion === NETWORK_CONFIG.protocolVersion &&
     (value.nickname === undefined || typeof value.nickname === "string") &&
     (value.color === undefined || isPlayerColor(value.color)) &&

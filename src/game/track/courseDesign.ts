@@ -3,6 +3,7 @@ import type { TrackSample } from "./trackPath";
 import type { RaceRouteSample } from "../core/race/raceTrack";
 import type { createSurfaceResult } from "./trackSurface";
 import type { KartHandling } from "../core/kart/kartPhysics";
+import { roughHandling, type RoughZone } from "./roughZones";
 
 export type CourseMechanic = Readonly<{
   name: string; cue: string; from: number; to: number; color: string;
@@ -66,8 +67,11 @@ export function shortcutWidth(sample: TrackSample, width: number) {
   return width - 1.2 * weight * weight * (3 - 2 * weight);
 }
 
-export function courseHandling(id: TrackId, surface: ReturnType<typeof createSurfaceResult>, grounded: boolean, yaw?: number, seconds?: number): KartHandling | undefined {
+export function courseHandling(id: TrackId, surface: ReturnType<typeof createSurfaceResult>, grounded: boolean, yaw?: number, seconds?: number,
+  roughZones: readonly RoughZone[] = []): KartHandling | undefined {
   if (!grounded || surface.progress === undefined || surface.distance > (surface.width ?? 8.4) / 2) return;
+  const rough = roughHandling(roughZones, surface);
+  if (rough) return rough;
   const mechanic = COURSE_MECHANICS[id];
   // Wet patches dry between wave cycles. Default time preserves static callers.
   if (seconds !== undefined && (id === "jiufen" || id === "kaohsiung") && seconds % 8 >= 5) return;

@@ -33,11 +33,11 @@ import { CanvasRecovery } from "./rendering/CanvasRecovery";
 
 import { getTrackData } from "./track/trackData";
 import { TrackProvider } from "./track/TrackContext";
-import { TRACK_CATALOG, type TrackId } from "./track/trackCatalog";
+import { DEFAULT_TRACK_ID, TRACK_CATALOG, type TrackId } from "./track/trackCatalog";
 
 export function Game({ singlePlayer = false }: { singlePlayer?: boolean }) {
   const [characterId, setCharacterId] = useState<CharacterId>(DEFAULT_CHARACTER);
-  const [selectedTrackId, setSelectedTrackId] = useState<TrackId>("meadow");
+  const [selectedTrackId, setSelectedTrackId] = useState<TrackId>(DEFAULT_TRACK_ID);
   const [cameraMode, setCameraMode] = useState<"drive" | "inspect">("drive");
   const [ready, setReady] = useState(false);
   const [telemetry, setTelemetry] = useState<KartTelemetry>(INITIAL_KART_TELEMETRY);

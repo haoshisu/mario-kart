@@ -3,6 +3,7 @@ import { ProjectileSystem } from "./ProjectileSystem";
 import { BOOST_PADS, ITEM_BOXES, ITEM_CONFIG, type ItemKind } from "./itemConfig";
 import { createItemState, receiveItemHit, tickItemEffects } from "./ItemEffects";
 import { rollItemKind } from "./itemOdds";
+import { ROAD_HAZARD_CONFIG, type RoadHazard } from "./roadHazards";
 import type { ItemEvent, ItemEventKind, ItemRacer, ItemState, ItemWorldSnapshot, TrapState } from "./itemTypes";
 import type { Point2 } from "../race/raceTrack";
 
@@ -31,6 +32,7 @@ export class ItemSystem {
   private readonly boxes = new Map<string, number>();
   private readonly padCooldowns = new Map<string, number>();
   private traps: TrapState[] = [];
+  private comets: { ownerId: string; targetId: string; strikesAt: number }[] = [];
   private readonly projectiles: ProjectileSystem;
   private events: { at: number; event: ItemEvent }[] = [];
   private random: () => number;
@@ -38,7 +40,7 @@ export class ItemSystem {
   private eventId = 0;
   private trapId = 0;
 
-  constructor(seed: number, private readonly placements = { ITEM_BOXES, BOOST_PADS }, guards = GUARD_RAIL_SEGMENTS, heightAt?: (x: number, z: number, height: number) => number) {
+  constructor(seed: number, private readonly placements: Readonly<{ ITEM_BOXES: typeof ITEM_BOXES; BOOST_PADS: typeof BOOST_PADS; ROAD_HAZARDS?: readonly RoadHazard[] }> = { ITEM_BOXES, BOOST_PADS }, guards = GUARD_RAIL_SEGMENTS, heightAt?: (x: number, z: number, height: number) => number) {
     this.random = createSeededRandom(seed);
     this.projectiles = new ProjectileSystem(guards, heightAt);
   }
@@ -48,6 +50,7 @@ export class ItemSystem {
     this.players.delete(id);
     this.projectiles.clearOwner(id);
     this.traps = this.traps.filter((trap) => trap.ownerId !== id);
+    this.comets = this.comets.filter((comet) => comet.ownerId !== id && comet.targetId !== id);
     for (const key of this.padCooldowns.keys()) {
       if (key.startsWith(`${id}:`)) this.padCooldowns.delete(key);
     }
@@ -65,6 +68,7 @@ export class ItemSystem {
     this.boxes.clear();
     this.padCooldowns.clear();
     this.traps = [];
+    this.comets = [];
     this.projectiles.reset();
     this.events = [];
     this.time = 0;
@@ -91,6 +95,15 @@ export class ItemSystem {
     state.revision += 1;
     state.cooldown = ITEM_CONFIG.useCooldown;
     if (kind === "disc" || kind === "orb") this.projectiles.launch(racer, kind, racers);
+    if (kind === "comet") {
+      // Lock the best-placed rival now; the strike resolves after a warning.
+      const target = racers.filter(candidate => candidate.eligible && candidate.id !== racer.id)
+        .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.id.localeCompare(b.id))[0];
+      if (target && this.comets.length < ITEM_CONFIG.maximumComets) {
+        this.comets.push({ ownerId: racer.id, targetId: target.id, strikesAt: this.time + ITEM_CONFIG.cometWarningSeconds });
+        this.emit("lock", target.id, racer.id, kind, target.position, tick);
+      }
+    }
     if (kind === "boost") state.boostRemaining = ITEM_CONFIG.boostSeconds;
     if (kind === "shield") state.shieldRemaining = ITEM_CONFIG.shieldSeconds;
     if (kind === "trap") {
@@ -113,6 +126,14 @@ export class ItemSystem {
     this.traps = this.traps.filter((trap) => trap.expiresAt > this.time);
     // Stable ordering resolves simultaneous pickups/hits deterministically.
     const eligible = racers.filter((racer) => racer.eligible).sort((a, b) => a.id.localeCompare(b.id));
+    this.comets = this.comets.filter((comet) => {
+      if (comet.strikesAt > this.time) return true;
+      const target = eligible.find((racer) => racer.id === comet.targetId), state = this.players.get(comet.targetId);
+      if (!target || !state) return false;
+      const outcome = receiveItemHit(state);
+      this.emit(outcome === "hit" ? "hit" : "immune", target.id, comet.ownerId, outcome === "shield" ? "shield" : "comet", target.position, tick);
+      return false;
+    });
     this.projectiles.step(delta, eligible, (racer, shot) => {
       const state = this.players.get(racer.id);
       if (!state) return;
@@ -132,6 +153,14 @@ export class ItemSystem {
           outcome === "shield" ? "shield" : "trap", racer.position, tick);
         return false;
       });
+      // Road slicks behave like a permanent trap: shields and recovery protection still apply.
+      for (const hazard of this.placements.ROAD_HAZARDS ?? []) {
+        if (state.lockRemaining > 0 || (racer.height !== undefined && Math.abs(racer.height - hazard.height) > 1.4) ||
+          distance(hazard.position) > ROAD_HAZARD_CONFIG.radius) continue;
+        const outcome = receiveItemHit(state);
+        // Recovery protection is silent here so a slide across one slick does not spam events.
+        if (outcome !== "immune") this.emit(outcome === "hit" ? "hit" : "immune", racer.id, hazard.id, outcome === "shield" ? "shield" : null, racer.position, tick);
+      }
       if (state.lockRemaining > 0) continue;
       for (const box of this.placements.ITEM_BOXES) {
         if ((state.held && state.reserve) || state.cooldown > 0 || (this.boxes.get(box.id) ?? 0) > this.time ||

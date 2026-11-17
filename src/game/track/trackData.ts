@@ -3,8 +3,9 @@ import { courseWidth } from "./courseDesign";
 import { PARK_OBSTACLE_FRACTIONS } from "./themeParks";
 import { createJumpRamps } from "../core/stunts/stuntSystem";
 import { createItemPlacements } from "../core/items/itemConfig";
+import { createRoughZones } from "./roughZones";
 import { createRaceTrack } from "../core/race/raceTrack";
-import { TRACK_CATALOG, type TrackId } from "./trackCatalog";
+import { isPlayableTrackId, TRACK_CATALOG, type TrackId } from "./trackCatalog";
 import { createTrackGeometry } from "./trackGeometry";
 import type { TrackSample } from "./trackPath";
 import { createTrackSamples } from "./trackPath";
@@ -30,11 +31,12 @@ function buildTrack(id: TrackId) {
     return { ...point, courseProgress: racePoint.raceProgress, width: courseWidth(id, racePoint, protectedFractions) };
   });
   const mainRace = createRaceTrack(samples);
-  const items = createItemPlacements(mainRace.RACE_ROUTE_SAMPLES, id, ramps, [PARK_OBSTACLE_FRACTIONS[id]]);
   const baseBranches: readonly TrackBranch[] = id === "meadow" ? createMeadowBranches(mainRace.RACE_ROUTE_SAMPLES) : createThemeParkBranches(id, mainRace.RACE_ROUTE_SAMPLES);
   const branches: readonly TrackBranch[] = id === "kaohsiung" ? [...baseBranches,createTaiwanBridge(mainRace.RACE_ROUTE_SAMPLES)]
     : id === "taipei" ? [...baseBranches,...createThemeParkBranches(id, mainRace.RACE_ROUTE_SAMPLES,
       { entry:.29, exit:.425, width:5.8, handle:16, side:1, name:"捷運交會內線" }).map(branch=>({...branch,id:"taipei-crossing"}))] : baseBranches;
+  const items = createItemPlacements(mainRace.RACE_ROUTE_SAMPLES, id, ramps, [PARK_OBSTACLE_FRACTIONS[id]],
+    branches.map(branch => [branch.entryProgress, branch.exitProgress] as const));
   const bridgeBranch = branches.find(branch=>branch.movable);
   const bridge = bridgeBranch ? { branch: bridgeBranch, ...bridgeParts(bridgeBranch) } : undefined;
   const race = createRaceTrack(samples, branches);
@@ -49,7 +51,12 @@ function buildTrack(id: TrackId) {
     width: Math.max(TRACK_CONFIG.ground.width, bounds.width + 60),
     depth: Math.max(TRACK_CONFIG.ground.depth, bounds.depth + 60),
     thickness: TRACK_CONFIG.ground.thickness };
-  return { ...definition, bounds, ground, samples, race, branches, bridge, geometry: createTrackGeometry(samples,
+  // Off-road apexes are part of the playable city series only.
+  const roughZones = isPlayableTrackId(id) ? createRoughZones(mainRace.RACE_ROUTE_SAMPLES, [
+    ...branches.map(branch => [branch.entryProgress, branch.exitProgress] as const),
+    ...ramps.map(ramp => { const progress = placementFraction(ramp.position); return [progress - .02, progress + .05] as const; }),
+  ]) : [];
+  return { ...definition, bounds, ground, samples, race, branches, bridge, roughZones, geometry: createTrackGeometry(samples,
     { railOpenings: id === "meadow" ? meadowRailOpenings(branches, race.RACE_ROUTE_SAMPLES) : themeParkRailOpenings(id, branches, race.RACE_ROUTE_SAMPLES),
       avoidRoads: branches.map(branch => ({ samples: branch.samples, width: branch.width, closed: false })) }),
     ramps, items: fullItems };

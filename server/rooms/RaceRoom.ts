@@ -1,5 +1,5 @@
 import { CHARACTER_IDS, DEFAULT_CHARACTER, type CharacterId } from "../../src/game/entities/characters";
-import { isTrackId } from "../../src/game/track/trackCatalog";
+import { DEFAULT_TRACK_ID, isPlayableTrackId } from "../../src/game/track/trackCatalog";
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { NETWORK_CONFIG, PLAYER_COLORS, type PlayerColor } from "../../src/game/network/networkConfig";
 import {
@@ -58,8 +58,8 @@ export class RaceRoom extends Room<{ client: RaceClient }> {
   private releaseCapacity: (() => void) | null = null;
 
   onCreate(options: { trackId?: unknown } = {}) {
-    if (options.trackId !== undefined && !isTrackId(options.trackId)) throw new Error("Unknown track");
-    this.simulation = new SimulationSystem(undefined, options.trackId ?? "meadow");
+    if (options.trackId !== undefined && !isPlayableTrackId(options.trackId)) throw new Error("Unknown track");
+    this.simulation = new SimulationSystem(undefined, options.trackId ?? DEFAULT_TRACK_ID);
     try { this.releaseCapacity = acquireRoom(); }
     catch (error) { this.simulation?.dispose(); throw error; }
     // Keep one admission slot so onAuth can return the Phase 4-specific

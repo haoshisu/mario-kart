@@ -11,6 +11,14 @@ export function isTrackId(value: unknown): value is TrackId {
   return TRACK_IDS.some((id) => id === value);
 }
 
+/** Courses offered to players: the Taiwan city series. Other ids remain as internal fixtures only. */
+export const PLAYABLE_TRACK_IDS = ["taipei", "jiufen", "kaohsiung", "tainan", "taichung"] as const satisfies readonly TrackId[];
+export type PlayableTrackId = typeof PLAYABLE_TRACK_IDS[number];
+export const DEFAULT_TRACK_ID: PlayableTrackId = "taipei";
+export function isPlayableTrackId(value: unknown): value is PlayableTrackId {
+  return PLAYABLE_TRACK_IDS.some((id) => id === value);
+}
+
 type Palette = { [Key in keyof typeof TRACK_COLORS]: string };
 export type TrackDefinition = Readonly<{
   id: TrackId; name: string; subtitle: string; description: string; difficulty: string;

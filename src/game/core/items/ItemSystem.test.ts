@@ -209,3 +209,40 @@ describe("authoritative item rules", () => {
     expect(system.snapshot().events).toHaveLength(ITEM_CONFIG.maximumEvents);
   });
 });
+
+describe("leader strike (comet)", () => {
+  const ranked = (id: string, rank: number, position: readonly [number, number]): ItemRacer => ({
+    id, position, previousPosition: position, yaw: 0, eligible: true, rank, racerCount: 3 });
+  function armed() {
+    const system = new ItemSystem(1, { ITEM_BOXES: [], BOOST_PADS: [] }, []);
+    for (const id of ["leader", "middle", "last"]) system.addPlayer(id);
+    // Hand the comet directly so the test does not depend on drop odds.
+    (system as unknown as { players: Map<string, { held: ItemKind | null }> }).players.get("last")!.held = "comet";
+    const racers = [ranked("leader", 1, [0, -60]), ranked("middle", 2, [0, -30]), ranked("last", 3, [0, 0])];
+    return { system, racers };
+  }
+  it("locks the leader immediately and strikes after the warning", () => {
+    const { system, racers } = armed();
+    expect(system.use(racers[2], system.getPlayer("last")!.revision, 1, racers)).toBe(true);
+    expect(system.snapshot().events).toContainEqual(expect.objectContaining({ kind: "lock", playerId: "leader", sourceId: "last", item: "comet" }));
+    system.step(ITEM_CONFIG.cometWarningSeconds - .1, racers, 2);
+    expect(system.getPlayer("leader")?.lockRemaining).toBe(0);
+    system.step(.2, racers, 3);
+    expect(system.getPlayer("leader")?.lockRemaining).toBeGreaterThan(0);
+    expect(system.getPlayer("middle")?.lockRemaining).toBe(0);
+    expect(system.snapshot().events).toContainEqual(expect.objectContaining({ kind: "hit", playerId: "leader", sourceId: "last", item: "comet" }));
+  });
+  it("is blocked by a shield raised during the warning and cleared by a rematch", () => {
+    const { system, racers } = armed();
+    system.use(racers[2], system.getPlayer("last")!.revision, 1, racers);
+    (system as unknown as { players: Map<string, { shieldRemaining: number }> }).players.get("leader")!.shieldRemaining = 5;
+    system.step(ITEM_CONFIG.cometWarningSeconds + .1, racers, 2);
+    expect(system.getPlayer("leader")?.lockRemaining).toBe(0);
+    expect(system.snapshot().events).toContainEqual(expect.objectContaining({ kind: "immune", playerId: "leader", item: "shield" }));
+    const again = armed();
+    again.system.use(again.racers[2], again.system.getPlayer("last")!.revision, 1, again.racers);
+    again.system.reset(2);
+    again.system.step(ITEM_CONFIG.cometWarningSeconds + .1, again.racers, 2);
+    expect(again.system.getPlayer("leader")?.lockRemaining).toBe(0);
+  });
+});

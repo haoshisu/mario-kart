@@ -23,7 +23,10 @@ describe("placement-weighted item drops", () => {
     expect(leader.orb).toBe(0);
     expect(leader.shield + leader.trap).toBeGreaterThan(600);
     expect(last.trap).toBe(0);
-    expect(last.boost + last.orb).toBeGreaterThan(800);
+    expect(last.boost + last.orb + last.comet).toBeGreaterThan(800);
+    // The leader strike only ever reaches the back of the field.
+    expect(leader.comet).toBe(0);
+    expect(last.comet).toBeGreaterThan(distribution(2, 4).comet);
   });
 
   it("keeps uniform drops when placement is unknown", () => {
