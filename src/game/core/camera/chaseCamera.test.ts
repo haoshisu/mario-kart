@@ -46,11 +46,11 @@ it("widens the view smoothly with speed and keeps constant kart-relative height 
     const y = .52 + i * .1;
     stepChaseCamera(state, { position: [i * .25, y, 0], yaw: 0, spinOutRemaining: 0, speed: 23 }, "racing", 1 / 60);
     expect(state.position.y - y).toBeCloseTo(CHASE_CAMERA_CONFIG.height - CHASE_CAMERA_CONFIG.speedHeight);
-    expect(state.fov).toBe(57);
+    expect(state.fov).toBe(CHASE_CAMERA_CONFIG.baseFov + CHASE_CAMERA_CONFIG.speedFov);
   }
   stepChaseCamera(state, { position: [30, 12.52, 0], yaw: 0, spinOutRemaining: 0, speed: 0 }, "racing", 1 / 60);
-  expect(state.fov).toBeGreaterThan(44);
-  expect(state.fov).toBeLessThan(57);
+  expect(state.fov).toBeGreaterThan(CHASE_CAMERA_CONFIG.baseFov);
+  expect(state.fov).toBeLessThan(CHASE_CAMERA_CONFIG.baseFov + CHASE_CAMERA_CONFIG.speedFov);
   for (let i = 0; i < 180; i++) stepChaseCamera(state, { position: [30, 12.52, 0], yaw: 0, spinOutRemaining: 0, speed: 0 }, "racing", 1 / 60);
-  expect(state.fov).toBeCloseTo(44, 4);
+  expect(state.fov).toBeCloseTo(CHASE_CAMERA_CONFIG.baseFov, 4);
 });

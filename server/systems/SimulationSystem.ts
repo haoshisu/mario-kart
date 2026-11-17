@@ -39,6 +39,7 @@ import type { ServerPlayerState } from "../state/roomState";
 import { resolveKartCollision, getNormalImpactSpeed } from "./CollisionSystem";
 import { InputSystem } from "./InputSystem";
 import { botPaceBonus, shouldBotUseItem } from "./botTactics";
+import { battleLapsForLength } from "../../src/game/core/race/raceConfig";
 import { routeLength } from "../../src/game/track/trackPlacement";
 import { botInput } from "./BotDriver";
 import { BOT_CONFIG } from "./botConfig";
@@ -108,12 +109,14 @@ export class SimulationSystem {
   private disposed = false;
   private readonly bots = new Map<string, { lane: number; input: KartInput; heldRevision: number; heldSinceTick: number }>();
   private readonly lapLength: number;
+  private readonly totalLaps: number;
   /** Best human race score this tick; CPUs pace themselves against it. */
   private leadingHumanScore: number | null = null;
 
   constructor(seed = Math.floor(Math.random() * 0x100000000), trackId: TrackId = "meadow") {
     this.track = getTrackData(trackId);
     this.lapLength = routeLength(this.track.race.RACE_ROUTE_SAMPLES);
+    this.totalLaps = battleLapsForLength(this.lapLength);
     this.raceSeed = seed;
     this.botBranches = this.track.branches.map(branch => {
       const main = this.track.race.RACE_ROUTE_SAMPLES;
@@ -174,7 +177,7 @@ export class SimulationSystem {
       status: "waiting",
       kart: createInitialKartState(pose.yaw),
       slipstream: createSlipstreamState(),
-      race: createInitialRaceState(),
+      race: createInitialRaceState(this.totalLaps),
       lateralSpeed: 0,
       wallReboundRemaining: 0,
       spinOutRemaining: 0,
@@ -259,7 +262,7 @@ export class SimulationSystem {
       player.stunt = createStuntState(this.track.id === "taipei");
       player.kart = createInitialKartState(pose.yaw);
       player.slipstream = createSlipstreamState();
-      player.race = startRace(createInitialRaceState()).state;
+      player.race = startRace(createInitialRaceState(this.totalLaps)).state;
       player.lateralSpeed = 0;
       player.wallReboundRemaining = 0;
       player.spinOutRemaining = 0;
@@ -292,7 +295,7 @@ export class SimulationSystem {
     this.players.forEach((player) => {
       player.status = "waiting";
       player.slipstream = createSlipstreamState();
-      player.race = createInitialRaceState();
+      player.race = createInitialRaceState(this.totalLaps);
       player.spinOutRemaining = 0;
       this.input.neutralize(player.id);
     });
@@ -466,7 +469,10 @@ export class SimulationSystem {
     const position = physics.body.translation();
     const activeRoad = sampleDrivingSurface(position.x, position.z, this.track, this.surface, position.y - KART_START.position[1], this.bridgeState.locked).routeIndex ?? 0;
     const handling = courseHandling(this.track.id, this.surface, canDrive && !player.stunt.active && Math.abs(position.y - this.surface.height - KART_START.position[1]) < .8, player.kart.yaw, this.tick * FIXED_DELTA);
-    const botRoute = activeRoad > 0 ? this.botBranches[activeRoad - 1] : this.track.race.RACE_ROUTE_SAMPLES;
+    // CPUs cannot judge whether a timed (movable) route will still be open when they
+    // reach its gate, so they always rejoin the main road rather than queue at a closed gate.
+    const botRoute = activeRoad > 0 && !this.track.branches[activeRoad - 1]?.movable
+      ? this.botBranches[activeRoad - 1] : this.track.race.RACE_ROUTE_SAMPLES;
     const pace = bot ? botPaceBonus(player.race.progress.rankingScore, this.leadingHumanScore, this.lapLength) : 0;
     const input = canDrive ? (!bot ? this.input.read(player.id, now)
       : botInput(position.x, position.z, player.kart.yaw, player.kart.speed, bot.lane,

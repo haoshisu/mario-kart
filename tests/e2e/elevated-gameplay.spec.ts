@@ -8,9 +8,11 @@ test("drives a raised canyon, stores two icons and uses the front item with E", 
   await page.goto("/game?e2e=1&stats=1");
   await page.getByRole("button", { name: /落日砂岩/ }).click();
   await page.getByRole("button", { name: "單人對戰・鍵盤", exact: true }).click();
+  // The key guide is shown before the start and gives way to the road once racing.
+  await expect(page.getByLabel("按鍵說明")).toContainText("↑ 加速");
   await page.getByTestId("start-race").click();
   await expect(page.getByTestId("multiplayer-runtime")).toHaveAttribute("data-phase", "racing");
-  await expect(page.getByLabel("按鍵說明")).toContainText("↑ 加速");
+  await expect(page.getByLabel("按鍵說明")).toHaveCount(0);
   await page.keyboard.down("ArrowUp");
   const player = page.getByTestId("multiplayer-runtime").locator("span", { hasText: "玩家" });
   await expect.poll(async () => Number(await player.getAttribute("data-speed"))).toBeGreaterThan(3);

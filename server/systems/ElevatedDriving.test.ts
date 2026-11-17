@@ -2,6 +2,7 @@ import { applyRampSurface } from "../../src/game/core/stunts/stuntSystem";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { beforeAll, expect, it } from "vitest";
 import { SimulationSystem } from "./SimulationSystem";
+import { battleLapsForLength } from "../../src/game/core/race/raceConfig";
 import { TRACK_IDS } from "../../src/game/track/trackCatalog";
 import { sampleDrivingSurface } from "../../src/game/track/drivingSurface";
 import { routeLength } from "../../src/game/track/trackPlacement";
@@ -42,7 +43,9 @@ it.each(TRACK_IDS)("%s physically climbs and descends its road and completes the
     expect(landings).toBe(jumps);
     expect(highest - lowest).toBeGreaterThan(4);
     expect(uphill && downhill).toBe(true);
-    expect(simulation.getSnapshot().players[0]).toMatchObject({ status: "finished", completedLaps: 3 });
+    const driver = simulation.getSnapshot().players[0];
+    expect(driver).toMatchObject({ status: "finished", completedLaps: driver.totalLaps });
+    expect(driver.totalLaps).toBe(battleLapsForLength(routeLength(simulation.track.race.RACE_ROUTE_SAMPLES)));
   } finally { simulation.dispose(); }
 }, 20_000);
 

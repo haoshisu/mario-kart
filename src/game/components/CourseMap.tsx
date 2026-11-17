@@ -1,4 +1,6 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { battleLapsForLength, RACE_CONFIG } from "../core/race/raceConfig";
+import { routeLength } from "../track/trackPlacement";
 import { useTrack } from "../track/TrackContext";
 import { PLAYER_COLOR_VALUES } from "../network/networkConfig";
 import type { SnapshotBuffer } from "../network/interpolation";
@@ -13,6 +15,8 @@ export function CourseMap({ runtimeRef, snapshotsRef, playerId }: {
 }) {
   const track = useTrack();
   const { race: { FINISH_MARKER }, items: { BOOST_PADS } } = track;
+  // Networked races may run fewer laps on long courses; practice always runs the full count.
+  const laps = useMemo(() => snapshotsRef ? battleLapsForLength(routeLength(track.race.RACE_ROUTE_SAMPLES)) : RACE_CONFIG.totalLaps, [snapshotsRef, track]);
   const OUTLINE = track.samples.map((sample, i) => `${i ? "L" : "M"}${sample.position[0]},${sample.position[1]}`).join(" ") + " Z";
   const markers = useRef<(SVGCircleElement | null)[]>([]);
   useEffect(() => {
@@ -37,7 +41,7 @@ export function CourseMap({ runtimeRef, snapshotsRef, playerId }: {
     return () => window.clearInterval(timer);
   }, [runtimeRef, snapshotsRef, playerId]);
   return <aside className={styles.map} aria-label={`${track.name}賽道地圖`} data-testid="course-map">
-    <span>{track.name}<small>3 LAPS</small></span>
+    <span>{track.name}<small>{laps} LAPS</small></span>
     <svg viewBox={track.bounds.viewBox} role="img" aria-label="路線、跳台、加速帶與車輛位置；白框大圓點為自己">
       <path d={OUTLINE} fill="none" stroke="#0c323d" strokeWidth="7" strokeLinejoin="round" />
       <path d={OUTLINE} fill="none" stroke="#eaf6e5" strokeWidth="4" strokeLinejoin="round" />

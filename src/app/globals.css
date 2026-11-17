@@ -1295,6 +1295,15 @@ a {
   border-radius: 12px; background: #14251feb; text-align: center; pointer-events: auto;
 }
 .keyboard-race-controls__input button { border-radius: 8px; padding: 6px 10px; }
+.keyboard-race-controls__input--racing {
+  left: 16px; transform: none; padding: 4px; background: #14251fa6; opacity: .7;
+}
+.keyboard-race-controls__input--racing button { font-size: 12px; padding: 4px 8px; }
+/* Settings stay reachable but recede while racing so the road stays clear. */
+.game-canvas:has(.keyboard-race-controls__input--racing) .render-settings,
+.game-canvas:has(.keyboard-race-controls__input--racing) .race-audio { opacity: .3; transition: opacity .2s; }
+.game-canvas:has(.keyboard-race-controls__input--racing) .render-settings:is(:hover, :focus-within),
+.game-canvas:has(.keyboard-race-controls__input--racing) .race-audio:is(:hover, :focus-within) { opacity: 1; }
 .keyboard-race-controls__input p { margin: 6px 0 0; font-size: 11px; }
 .keyboard-race-controls > .controller-item-panel {
   position: absolute; top: 176px; right: 16px; width: 270px;

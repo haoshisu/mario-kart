@@ -4,6 +4,8 @@ import { beforeAll, expect, it } from "vitest";
 import { SimulationSystem } from "./SimulationSystem";
 import { botInput } from "./BotDriver";
 import { BOT_CONFIG } from "./botConfig";
+import { battleLapsForLength } from "../../src/game/core/race/raceConfig";
+import { routeLength } from "../../src/game/track/trackPlacement";
 import { PLAYER_COLORS } from "../../src/game/network/networkConfig";
 import { ITEM_CONFIG } from "../../src/game/core/items/itemConfig";
 
@@ -18,7 +20,7 @@ it("produces bounded deterministic driving intent", () => {
   expect(input.throttle).toBeLessThanOrEqual(1);
 });
 
-it.each([...TRACK_IDS.map((trackId) => ({ trackId, seed: 42 })), { trackId: "meadow" as const, seed: 1 }, { trackId: "meadow" as const, seed: 2026 }])("three bots complete legal three-lap item races without position overrides (track $trackId, seed $seed)", ({ trackId, seed }) => {
+it.each([...TRACK_IDS.map((trackId) => ({ trackId, seed: 42 })), { trackId: "meadow" as const, seed: 1 }, { trackId: "meadow" as const, seed: 2026 }])("three bots complete legal full-distance item races without position overrides (track $trackId, seed $seed)", ({ trackId, seed }) => {
   const simulation = new SimulationSystem(seed, trackId);
   try {
     simulation.addPlayer("human", "Player", PLAYER_COLORS[0]);
@@ -36,7 +38,7 @@ it.each([...TRACK_IDS.map((trackId) => ({ trackId, seed: 42 })), { trackId: "mea
     const snapshot = simulation.getSnapshot();
     expect(snapshot.phase, JSON.stringify(snapshot.players)).toBe("finished");
     for (const bot of snapshot.players.filter((player) => player.id.startsWith("cpu"))) {
-      expect(bot, JSON.stringify(bot)).toMatchObject({ status: "finished", completedLaps: 3 });
+      expect(bot, JSON.stringify(bot)).toMatchObject({ status: "finished", completedLaps: battleLapsForLength(routeLength(simulation.track.race.RACE_ROUTE_SAMPLES)) });
       expect(bot.finishTime).toBeGreaterThan(10);
       expect(used.has(bot.id)).toBe(true);
       if (trackId === "taipei") {

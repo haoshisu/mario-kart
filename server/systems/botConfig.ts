@@ -14,7 +14,8 @@ export const BOT_CONFIG = {
   passingClearance: 1.8,
   draft: { passingOffset: 1.8, edgeClearance: 1, holdMargin: 1.5 },
   /** Catch-up pacing against the leading human, in metres of race distance. */
-  pace: { maximumBonus: 3.2, fullBonusGap: 70, maximumPenalty: 2.5, fullPenaltyGap: 110, deadZone: 8 },
+  // Far-ahead CPUs ease off hard so a human is never racing an empty road.
+  pace: { maximumBonus: 3.2, fullBonusGap: 70, maximumPenalty: 6, fullPenaltyGap: 90, deadZone: 8 },
   items: {
     straightSteer: .35, boostHold: 4,
     shieldThreatDistance: 18, shieldHold: 8,

@@ -3,7 +3,6 @@ import { rematchUnavailableReason } from "../core/results/raceResults";
 import { Countdown, countdownCue } from "./Countdown";
 import type { HostRoomPhase } from "../network/useHostRoom";
 import type { RaceSnapshot } from "../network/protocol";
-import { NETWORK_CONFIG } from "../network/networkConfig";
 import { ItemEventFeedback, ItemStatus } from "./ItemStatus";
 
 type MultiplayerHudProps = {
@@ -23,15 +22,6 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
   }
   const rematchReason = rematchUnavailableReason(snapshot.players, hasConnectedHuman);
   const ordered = [...snapshot.players].sort((left, right) => left.rank - right.rank);
-  const active = snapshot.players.filter((player) => player.status !== "dnf");
-  let centerX = 0;
-  let centerZ = 0;
-  active.forEach((player) => {
-    centerX += player.position[0];
-    centerZ += player.position[2];
-  });
-  centerX = active.length > 0 ? centerX / active.length : 0;
-  centerZ = active.length > 0 ? centerZ / active.length : 0;
 
   return (
     <div className="multiplayer-hud" data-testid="multiplayer-hud">
@@ -87,12 +77,7 @@ export function MultiplayerHud({ snapshot, roomPhase, onReturnLobby, onRematch, 
                 ? "DNF"
                 : player.status === "finished"
                   ? `${player.finishTime?.toFixed(2) ?? "—"}s`
-                  : `${Math.min(player.completedLaps + 1, player.totalLaps)}/${player.totalLaps}${
-                    Math.hypot(player.position[0] - centerX, player.position[2] - centerZ) >
-                      NETWORK_CONFIG.sharedCamera.farPlayerDistance
-                      ? " · 離群"
-                      : ""
-                  }`}
+                  : `${Math.min(player.completedLaps + 1, player.totalLaps)}/${player.totalLaps}`}
             </small>
           </li>
         ))}

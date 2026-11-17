@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RACE_CONFIG } from "./raceConfig";
+import { battleLapsForLength, RACE_CONFIG } from "./raceConfig";
 import {
   createInitialRaceState,
   getCountdownCue,
@@ -42,5 +42,16 @@ describe("raceStateMachine", () => {
 
     expect(reset.transitioned).toBe(true);
     expect(reset.state).toEqual(createInitialRaceState());
+  });
+});
+
+describe("battle lap count", () => {
+  it("runs kilometre-plus courses for fewer laps and keeps the count through a reset", () => {
+    expect(battleLapsForLength(650)).toBe(RACE_CONFIG.totalLaps);
+    expect(battleLapsForLength(1250)).toBe(RACE_CONFIG.longTrackLaps);
+    const state = createInitialRaceState(2);
+    expect(state.totalLaps).toBe(2);
+    expect(transitionRaceState(state, "RESET").state.totalLaps).toBe(2);
+    expect(createInitialRaceState().totalLaps).toBe(RACE_CONFIG.totalLaps);
   });
 });

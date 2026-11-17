@@ -8,14 +8,14 @@ export type RaceTransition = Readonly<{
   transitioned: boolean;
 }>;
 
-export function createInitialRaceState(): RaceState {
+export function createInitialRaceState(totalLaps: number = RACE_CONFIG.totalLaps): RaceState {
   return {
     phase: "IDLE",
     countdownRemaining: 0,
     goDisplayRemaining: 0,
     elapsedTime: 0,
     finishTime: null,
-    totalLaps: RACE_CONFIG.totalLaps,
+    totalLaps,
     completedLaps: 0,
     lapStartTime: 0,
     lapTimes: [],
@@ -42,7 +42,7 @@ export function transitionRaceState(
   event: RaceTransitionEvent,
 ): RaceTransition {
   if (event === "RESET") {
-    return { state: createInitialRaceState(), transitioned: true };
+    return { state: createInitialRaceState(current.totalLaps), transitioned: true };
   }
 
   if (current.phase === "IDLE" && event === "START") {
